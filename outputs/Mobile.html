@@ -4,7 +4,7 @@
     <base target="_top">
     <link rel="apple-touch-icon" href="https://drive.google.com/thumbnail?id=1h-5KIueT8t1pR1DRSeew1GNicgQ42Ggt&sz=w512">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#07111e">
+    <meta name="theme-color" content="#041e42">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="NBA Game Prep">
@@ -17,6 +17,30 @@
     </style>
     <style>
       .head .chip,.head .eyebrow span{display:none}.head{align-items:center}.score-card{min-height:164px;padding:14px 16px}.score-card .game-copy{width:100%}.score-top{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:12px;font-weight:800}.score-team{display:flex;justify-content:space-between;gap:10px;padding:7px 0 2px;color:var(--text);font-size:17px;font-weight:900}.score-team small{color:var(--muted);font-size:13px;font-weight:800}.score-card .game-selection{position:absolute;top:14px;right:15px}.score-card .badges{margin-top:10px}.latest-summary{font-size:15px!important;color:var(--text)!important;font-weight:800}.export-count{color:var(--accent);font-size:21px!important}.details{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}.details summary{min-height:44px;padding:12px 0;color:var(--muted);font-weight:800}.receipt{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.receipt .badge{font-weight:800}.analysis-overlay .drawer{padding-bottom:calc(24px + env(safe-area-inset-bottom))}.analysis-choice{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:58px;margin:9px 0;border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--text);padding:13px 15px;text-align:left;font-weight:900}.analysis-choice span{color:var(--accent);font-size:13px}.setting-toggle{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:60px;padding:13px 0;border-top:1px solid var(--line)}.setting-toggle input{width:26px;height:26px;accent-color:var(--accent)}.settings-build{margin-top:16px;color:var(--muted);font-size:12px}.warning-card{border-color:#835d31;background:#332719}.warning-card strong{color:var(--warn)}
+    </style>
+    <style>
+      /* Knicks-inspired palette: deep blue surfaces, orange actions, white lettering. */
+      :root{--bg:#041e42;--surface:#082b58;--surface2:#0d3c78;--line:#2b64a0;--text:#f7f9ff;--muted:#bfd1eb;--accent:#f58426;--accent-deep:#54280f;--danger:#ffc4cf;--warn:#ffd38b;--shadow:0 14px 36px #010b1bcc}
+      body{background:radial-gradient(circle at 76% -8%,#006bb655,transparent 38%),var(--bg)}
+      .head{background:linear-gradient(180deg,#041e42fa 70%,#041e42e8 88%,transparent)}
+      button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{outline-color:#8fc8ff}
+      .brand-icon{background:linear-gradient(145deg,#f9a04f,#e86719);box-shadow:0 8px 22px #010b1b88}
+      .brand-icon svg{stroke:#041e42}
+      .gear{border-color:#4e83bc;background:#0a315f}
+      .chip:before{box-shadow:0 0 0 4px #f5842626}
+      .install{border-color:#2e6fae;background:linear-gradient(135deg,#0b3970,#202b48)}
+      .install-icon{background:var(--accent);color:#041e42}
+      .tabs button.active{box-shadow:inset 0 0 0 1px #f5842655}
+      .game{background:linear-gradient(145deg,#0a315f,#062651)}
+      .game.selected{border-color:var(--accent);background:linear-gradient(145deg,#123f75,#0b2d5b);box-shadow:0 10px 24px #010b1b88}
+      .game.selected .game-selection{color:#041e42}
+      .badge.good{border-color:#347bbb;background:#0d3c78;color:#d8ebff}
+      .cost{border-color:#f58426;background:linear-gradient(145deg,#123d70,#0b2f5e);color:#eff6ff}
+      .primary{color:#041e42;box-shadow:0 8px 22px #f5842655}
+      .secondary{border-color:#3b72aa}
+      .skeleton{background:linear-gradient(90deg,#062651,#11487f,#062651);background-size:200% 100%}
+      .spinner{border-color:#2b64a0;border-top-color:var(--accent)}
+      .drawer{background:linear-gradient(145deg,#082b58,#041e42)}
     </style>
   </head>
   <body>

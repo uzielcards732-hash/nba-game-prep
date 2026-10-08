@@ -10,10 +10,10 @@ or live provider data has been created.
 **What is in flight:** Checkpoint 3 preparation has published the NBA Perplexity
 handoff correction as web-app version 2. No live provider test has run.
 SportsGameOdds remains disabled pending its separately approved coverage test.
+A Knicks-inspired visual update is local only and has not been deployed.
 
-**Next action:** Open the version 2 NBA web-app link and verify the Perplexity
-handoff text, then separately approve an explicitly budgeted one-game provider
-coverage test if desired.
+**Next action:** Review the local Knicks-inspired visual update, then approve
+deployment or an explicitly budgeted one-game provider coverage test separately.
 
 **Credit position:** Zero NBA provider credits spent. Future standard loads are
 up to five credits per selected game; alternates add up to five more.
@@ -45,3 +45,8 @@ up to five credits per selected game; alternates add up to five more.
 - 2026-10-07: Created immutable NBA Game Prep version 2 for the Perplexity handoff correction.
 - 2026-10-07: Created a separate version 2 web-app deployment; version 1 remains available for rollback.
 - 2026-10-07: No Odds API or SportsGameOdds request was made during the publication.
+- 2026-10-07: Pulled the live NBA source before the requested visual update.
+- 2026-10-07: Added a Knicks-inspired navy, royal-blue, orange, and white color layer locally.
+- 2026-10-07: Preserved all NBA workflow behavior, controls, and provider handling.
+- 2026-10-07: Passed the NBA foundation and workflow checks after the visual update.
+- 2026-10-07: Made no provider request or deployment during the visual-update session.

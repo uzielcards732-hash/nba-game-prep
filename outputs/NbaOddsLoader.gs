@@ -158,6 +158,10 @@ const INJURIES_CACHE_HOURS = 3;
 const AVAILABILITY_CONFIRM_WINDOW_MINUTES = 90;
 
 function onOpen() {
+  // The project is bound only to the NBA workbook. Recording this id here
+  // makes the owner-only web app usable without a separate manual setup step.
+  const active=SpreadsheetApp.getActiveSpreadsheet();
+  if(active)PropertiesService.getScriptProperties().setProperty(MOBILE_SPREADSHEET_ID_PROPERTY,active.getId());
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('NBA Tools')
     .addItem('Refresh Schedule and Odds (3 credits)','loadWeek')

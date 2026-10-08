@@ -1,3 +1,5 @@
 .clasp.json
 .DS_Store
 work/
+build/
+node_modules/

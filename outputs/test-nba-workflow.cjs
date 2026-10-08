@@ -20,5 +20,7 @@ assert.match(mobile, /Points, rebounds, assists, threes, and PRA/);
 assert.match(mobile, /mobileSaveApiKey/);
 assert.match(mobile, /Use Perplexity Research.*NBA game\(s\)/);
 assert.ok(!mobile.includes('SportsGameOdds coverage is limited to passing and receiving yards'));
+assert.match(mobile, /class="basketball-mark"/);
+assert.match(mobile, /<circle cx="16" cy="16" r="11\.5"/);
 assert.ok(!mobile.includes('NFL_MOBILE_ES5'));
 console.log('NBA workflow checks passed');

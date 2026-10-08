@@ -24,8 +24,9 @@
       body{background:radial-gradient(circle at 76% -8%,#006bb655,transparent 38%),var(--bg)}
       .head{background:linear-gradient(180deg,#041e42fa 70%,#041e42e8 88%,transparent)}
       button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{outline-color:#8fc8ff}
-      .brand-icon{background:linear-gradient(145deg,#f9a04f,#e86719);box-shadow:0 8px 22px #010b1b88}
+      .brand-icon{border:1px solid #3f7ec0;background:linear-gradient(145deg,#0e427d,#072a57);box-shadow:0 8px 22px #010b1b88}
       .brand-icon svg{stroke:#041e42}
+      .brand-icon .basketball-mark{width:35px;height:35px;filter:drop-shadow(0 2px 2px #010b1b66)}
       .gear{border-color:#4e83bc;background:#0a315f}
       .chip:before{box-shadow:0 0 0 4px #f5842626}
       .install{border-color:#2e6fae;background:linear-gradient(135deg,#0b3970,#202b48)}
@@ -45,7 +46,7 @@
   </head>
   <body>
     <main>
-      <header class="head"><div class="brand"><div class="brand-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke-width="2.4"><path d="M8 24c6.5-1.1 13-6.3 16-16C13.9 11 8.7 16.1 8 24Z"/><path d="m13 19 5-5M14 12l6 6M10.5 21.5l2 2"/></svg></div><div class="brand-copy"><div class="eyebrow">NBA Tools</div><h1>Game prep</h1></div></div><button class="gear" id="settings" type="button" aria-label="Open settings">⚙</button></header>
+      <header class="head"><div class="brand"><div class="brand-icon" aria-hidden="true"><svg class="basketball-mark" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="11.5" fill="#f58426" stroke="#041e42" stroke-width="2.2"/><path d="M4.5 16h23M16 4.5c-3.7 3.3-5.8 7.3-5.8 11.5S12.3 24.2 16 27.5M16 4.5c3.7 3.3 5.8 7.3 5.8 11.5S19.7 24.2 16 27.5" stroke="#041e42" stroke-width="2.05" stroke-linecap="round"/></svg></div><div class="brand-copy"><div class="eyebrow">NBA Tools</div><h1>Game prep</h1></div></div><button class="gear" id="settings" type="button" aria-label="Open settings">⚙</button></header>
       <div class="status" id="status" aria-live="polite">Loading games…</div>
       <div class="steps" id="stepbar" aria-label="Workflow progress"><div class="step active" data-step="choose"><span>Step 1</span>Games</div><div class="step" data-step="review"><span>Step 2</span>Cost</div><div class="step" data-step="result"><span>Step 3</span>Export</div></div>
       <section class="screen active" id="choose"><div id="install-guide" hidden></div><div id="latest"></div><div class="title"><h2>1. Choose games</h2><p>Pick only the games you want analyzed.</p></div><div class="tabs" id="tabs" aria-label="Game slates"></div><div class="tools"><button class="text-btn" id="select-slate" type="button">Select slate</button><button class="text-btn" id="clear-games" type="button">Clear all</button></div><div id="games"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></section>

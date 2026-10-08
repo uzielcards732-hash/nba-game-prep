@@ -11,10 +11,10 @@ or live provider data has been created.
 handoff correction as web-app version 2. No live provider test has run.
 SportsGameOdds remains disabled pending its separately approved coverage test.
 A Knicks-inspired visual update is published as NBA Game Prep version 3.
+A distinct basketball mark is local only and has not been deployed.
 
-**Next action:** Open the NBA Game Prep version 3 link and verify the visual
-update, then separately approve an explicitly budgeted one-game provider
-coverage test if desired.
+**Next action:** Review the local basketball-mark update, then approve its
+deployment or an explicitly budgeted one-game provider coverage test separately.
 
 **Credit position:** Zero NBA provider credits spent. Future standard loads are
 up to five credits per selected game; alternates add up to five more.
@@ -56,3 +56,8 @@ up to five credits per selected game; alternates add up to five more.
 - 2026-10-07: Created a separate version 3 web-app deployment; versions 1 and 2 remain available for rollback.
 - 2026-10-07: Made no Odds API or SportsGameOdds request during palette deployment.
 - 2026-10-07: Recorded version 3 as the current published NBA visual state.
+- 2026-10-07: Replaced the generic top-left mark with an inline orange basketball icon locally.
+- 2026-10-07: Kept the mark self-contained with no external image dependency.
+- 2026-10-07: Retained the Knicks-inspired blue app shell around the basketball mark.
+- 2026-10-07: Passed NBA foundation and workflow checks after the mark update.
+- 2026-10-07: Made no provider request or deployment during the basketball-mark session.

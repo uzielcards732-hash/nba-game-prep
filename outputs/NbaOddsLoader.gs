@@ -513,7 +513,7 @@ function mobilePropsPlan_(forceRefresh,includeAlternateProps) {
     include_alternate_props:includeAlternates,alternate_reusable_props:alternateReusable,alternate_games_requiring_refresh:alternateToLoad,
     alternate_markets:MOBILE_ALTERNATE_MARKETS.slice(),max_alternate_prop_credits:alternateToLoad.length*MOBILE_ALTERNATE_MARKETS.length,
     max_total_odds_api_credits:toLoad.length*PROP_MARKETS.length+alternateToLoad.length*MOBILE_ALTERNATE_MARKETS.length,
-    roster_validation:'Free roster validation runs before any prop request.',no_automatic_paid_retries:true,
+    roster_validation:'NBA player-team enrichment is not included in this load. Live research must confirm unresolved player identity.',no_automatic_paid_retries:true,
     sports_game_odds:sportsGameOddsMobilePlan_(games,force)};
 }
 function mobileLoadPlan(forceRefresh,includeAlternateProps) { return mobilePropsPlan_(forceRefresh===true,includeAlternateProps===true); }
@@ -645,7 +645,7 @@ function mobileLoadAndExport(plan,requestId) {
       let providerResult;
       mobileUpdateRun_(run,'loading_provider','Recording SportsGameOdds coverage status.');
       try { providerResult=loadSportsGameOddsForMobile_(allGames,current.sports_game_odds); }
-      catch(providerError) { providerResult={successes:0,warnings:['SportsGameOdds: '+safeError_(providerError)],failed:true,usage:{scope:'passing and receiving yards only',status:'FAILED',no_automatic_retries:true}}; }
+      catch(providerError) { providerResult={successes:0,warnings:['SportsGameOdds: '+safeError_(providerError)],failed:true,usage:{scope:'NBA coverage test not yet approved',status:'FAILED',no_automatic_retries:true}}; }
       mobileUpdateRun_(run,'creating_export','Creating your analysis export.');
       const exported=exportSelectedGamesCore_(allGames,{odds_api:{max_standard_prop_credits:current.max_prop_credits,max_alternate_prop_credits:current.max_alternate_prop_credits,max_credits:current.max_total_odds_api_credits,loaded_events:result.successes,loaded_alternate_events:alternateResult.successes},sports_game_odds:providerResult.usage},id);
       const slots=configuredKeySlots_(),pool=readKeyPoolState_(slots),active=pool.slots[pool.active]||{};
@@ -985,7 +985,7 @@ function normalizedLine_(value,label) {
   return line;
 }
 function normalizedEventBase_(provider,eventId,home,away,kickoff,bookmaker) {
-  return {schema_version:1,provider:provider,provider_event_id:normalizedText_(eventId,'provider event ID'),league:'NFL',sport:SPORT,
+  return {schema_version:1,provider:provider,provider_event_id:normalizedText_(eventId,'provider event ID'),league:'NBA',sport:SPORT,
     home_team:normalizedText_(home,'home team'),away_team:normalizedText_(away,'away team'),kickoff_utc:normalizedTimestamp_(kickoff,'kickoff time'),
     bookmaker:normalizedText_(bookmaker,'bookmaker'),quotes:[],unavailable_quotes:[],diagnostics:{source_quote_count:0,normalized_quote_count:0,unavailable_quote_count:0,unsupported_stat_ids:[]}};
 }
@@ -1658,7 +1658,7 @@ function providerCoverageSummary_(coverage) {
   }).join(' | ');
 }
 function crossProviderExportDiagnostics_(quotes,eventIds) {
-  const result={scope:'SportsGameOdds comparison is limited to DraftKings passing and receiving yards.',events:{}};
+  const result={scope:'SportsGameOdds NBA coverage is disabled pending an approved coverage test.',events:{}};
   eventIds.forEach(eventId=>{
     const rows=quotes.filter(q=>String(q['Odds API Event ID'])===String(eventId)&&q.Available===true),byKey={};
     rows.forEach(q=>{const key=[q['Market Key'],q['Player Key'],q.Side,q.Line].join('|');(byKey[key]||(byKey[key]=[])).push(q);});

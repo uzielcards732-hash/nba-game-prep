@@ -6,12 +6,12 @@
 alongside local source, mobile UI, and foundation tests under `outputs/`. No NBA
 deployment, credential, Drive export folder, or live provider data exists yet.
 
-**What is in flight:** Checkpoint 2 local implementation is complete. It has not
-been pushed, deployed, or tested against a live provider. SportsGameOdds remains
-disabled pending its separately approved coverage test.
+**What is in flight:** Checkpoint 2 is pushed and deployed as NBA Game Prep
+version 1. No live provider test has run. SportsGameOdds remains disabled
+pending its separately approved coverage test.
 
-**Next action:** Review the local NBA workflow patch and offline tests before
-authorizing a push, deployment, or a one-game paid provider test.
+**Next action:** Reload the NBA Sheet once to initialize the bound Sheet ID, then
+run the zero-credit web-app connection check before any paid provider test.
 
 **Credit position:** Zero NBA provider credits spent. Future standard loads are
 up to five credits per selected game; alternates add up to five more.
@@ -30,3 +30,6 @@ up to five credits per selected game; alternates add up to five more.
 - 2026-10-07: Removed NFL roster loading from active NBA load paths.
 - 2026-10-07: Updated the primary ChatGPT handoff for NBA minutes, rotations, usage, and rest research.
 - 2026-10-07: Passed local NBA foundation and workflow checks with zero provider calls.
+- 2026-10-07: Pushed the NBA source to its separate Apps Script project.
+- 2026-10-07: Deployed NBA Game Prep version 1 as an owner-only web app.
+- 2026-10-07: No provider request was made during push or deployment.

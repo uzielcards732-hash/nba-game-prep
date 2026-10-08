@@ -2,16 +2,18 @@
 
 ## Current state
 
-**What exists:** An isolated NBA Sheet and bound Apps Script project exist,
-alongside local source, mobile UI, and foundation tests under `outputs/`. No NBA
-deployment, credential, Drive export folder, or live provider data exists yet.
+**What exists:** An isolated NBA Sheet, bound Apps Script project, and owner-only
+NBA Game Prep web app version 1 exist. Local source, mobile UI, and offline
+foundation/workflow tests are under `outputs/`. No NBA credential, Drive export,
+or live provider data has been created.
 
-**What is in flight:** Checkpoint 2 is pushed and deployed as NBA Game Prep
-version 1. No live provider test has run. SportsGameOdds remains disabled
-pending its separately approved coverage test.
+**What is in flight:** Checkpoint 3 preparation is local only. The Perplexity
+handoff was corrected from NFL wording to NBA wording and has not been deployed.
+No live provider test has run. SportsGameOdds remains disabled pending its
+separately approved coverage test.
 
-**Next action:** Reload the NBA Sheet once to initialize the bound Sheet ID, then
-run the zero-credit web-app connection check before any paid provider test.
+**Next action:** Review the local handoff correction, then approve a deployment
+or an explicitly budgeted one-game provider coverage test separately.
 
 **Credit position:** Zero NBA provider credits spent. Future standard loads are
 up to five credits per selected game; alternates add up to five more.
@@ -33,3 +35,8 @@ up to five credits per selected game; alternates add up to five more.
 - 2026-10-07: Pushed the NBA source to its separate Apps Script project.
 - 2026-10-07: Deployed NBA Game Prep version 1 as an owner-only web app.
 - 2026-10-07: No provider request was made during push or deployment.
+- 2026-10-07: Confirmed the deployed NBA web app opens successfully for the owner.
+- 2026-10-07: Started local-only checkpoint 3 preparation; no provider request was made.
+- 2026-10-07: Corrected the Perplexity handoff from leftover NFL wording to NBA research wording.
+- 2026-10-07: Added offline checks for the NBA Perplexity handoff and removed obsolete NFL provider-scope wording.
+- 2026-10-07: Passed source syntax, foundation, and workflow checks; the correction remains local only.

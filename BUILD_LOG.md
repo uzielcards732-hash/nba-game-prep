@@ -46,8 +46,16 @@ pushed to GitHub 2026-11-02 on owner OK, NOT DEPLOYED; live stays version 13):**
 - Credits: building and testing used 0. Running it adds 0 credits per load;
   F3 can only save credits. The cap limits the worst month to
   160 x 30 = 4,800.
-- Next: owner adds the two secrets, runs `check`, says "deploy now", then one
-  supervised paid test (one game, standard only, maximum 5 credits).
+- Owner added secrets `CLASPRC_JSON` and `NBA_SCRIPT_ID` (2026-11-02). The
+  workflow file alone was pushed to `main` (commit `9151000`, owner OK) so
+  GitHub lists the button.
+- Deploy button `check` PASSED (run 41499630532, 2026-11-02 18:20 to 18:21Z, on
+  `claude/phase1-reliability` at `f7b430e`): all suites green, library pin NBA
+  only, web app on version 13 (next would be 14), live HEAD and version 13 both
+  byte-match commit `140074a`. Tag `nba-v13` recorded. Repo equals live is now
+  verified, not just recorded. Secrets were masked in the log.
+- Next: owner says "deploy now" (creates version 14), then one supervised paid
+  test (one game, standard only, maximum 5 credits).
 
 **Phase 0 baseline (2026-11-02, cloud session, free checks only, branch
 `claude/phase0-baseline`, pushed to GitHub 2026-11-02 on owner OK, not merged, nothing deployed):**
@@ -293,3 +301,4 @@ same owner pool as NFL/Friends.
 - 2026-11-02: New suites test-nba-phase1 (25) and test-nba-speed (5) plus deploy/test (11); all 10 suites pass; 22 server side tests fail on live v13 as expected.
 - 2026-11-02: Removed the copied NFL test-loader.cjs; adjusted three existing suites' mocks for the new cap, required PLANNED log and build.
 - 2026-11-02: Zero provider calls, emails or deployments; NFL untouched. Branch pushed on owner OK; not merged or deployed.
+- 2026-11-02: Workflow file pushed to main (owner OK); first deploy button check passed; live v13 byte-matches 140074a; tag nba-v13 recorded. Nothing deployed.

@@ -2,9 +2,12 @@
 
 ## Current state
 
-**Phase 1 reliability, speed, deploy button (2026-11-02, cloud session,
-branch `claude/phase1-reliability`, build `2026.11.02-nba-reliability.1`,
-pushed to GitHub 2026-11-02 on owner OK, NOT DEPLOYED; live stays version 13):**
+**Phase 1 reliability, speed, deploy button: DEPLOYED as version 14, build
+`2026.11.02-nba-reliability.1` (commit `759a1f1` on `claude/phase1-reliability`,
+2026-11-02 18:23Z, owner "deploy now", deploy button run 41500024745; all
+steps passed: tests, NBA only library pin, live == v13 before, push, version
+14, web app moved, post byte-match of HEAD and v14, tag `nba-v14`; rollback:
+button, mode rollback, version 13). Supervised paid test still pending:**
 
 - Paid request fixes ported from NFL F1 to F8. F1: a failed shared ledger
   write after a paid response no longer throws the response away; it is saved,
@@ -54,8 +57,9 @@ pushed to GitHub 2026-11-02 on owner OK, NOT DEPLOYED; live stays version 13):**
   only, web app on version 13 (next would be 14), live HEAD and version 13 both
   byte-match commit `140074a`. Tag `nba-v13` recorded. Repo equals live is now
   verified, not just recorded. Secrets were masked in the log.
-- Next: owner says "deploy now" (creates version 14), then one supervised paid
-  test (one game, standard only, maximum 5 credits).
+- Next: one supervised paid test on v14 (one game, standard only, maximum
+  5 credits) to confirm the charge, ledger settlement, nightly count and
+  receipt timings live.
 
 **Phase 0 baseline (2026-11-02, cloud session, free checks only, branch
 `claude/phase0-baseline`, pushed to GitHub 2026-11-02 on owner OK, not merged, nothing deployed):**
@@ -302,3 +306,4 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Removed the copied NFL test-loader.cjs; adjusted three existing suites' mocks for the new cap, required PLANNED log and build.
 - 2026-11-02: Zero provider calls, emails or deployments; NFL untouched. Branch pushed on owner OK; not merged or deployed.
 - 2026-11-02: Workflow file pushed to main (owner OK); first deploy button check passed; live v13 byte-matches 140074a; tag nba-v13 recorded. Nothing deployed.
+- 2026-11-02: Deployed Phase 1 as version 14 via the deploy button (run 41500024745); verified byte-match and tagged nba-v14. Paid test pending.

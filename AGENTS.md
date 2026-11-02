@@ -17,6 +17,14 @@ or revive projection methods; if a task seems to need one, stop and say so.
 
 Odds API cost is markets x regions per event odds call. The app sends
 `bookmakers=` instead of `regions=`; up to ten books count as one region.
+Since build `2026.11.02-nba-consensus.1` every paid props and game lines
+request names ten books (`NBA_REQUEST_BOOKMAKERS`): draftkings, fanatics,
+fanduel, betmgm, williamhill_us, betrivers, hardrockbet, pinnacle,
+betonlineag, lowvig. An 11th book is refused before any request. Only
+DraftKings feeds PROPS, ALT_PROPS, INDEX, line history and quotes; Fanatics
+goes to COMPARE_QUOTES; the reference books feed MARKET_CONSENSUS. A charge
+above the previewed maximum keeps the data and pauses all paid requests until
+the owner runs `acknowledgeOverchargeHold` in the editor.
 Current costs: free game list (events endpoint) 0; game lines 3 per refresh
 (h2h, spreads, totals); standard props 5 per game; opted in alternates 5 per
 game. Every new paid feature must state its projected monthly cost before it
@@ -74,6 +82,13 @@ averages and points-per-minute arithmetic are context, not standalone evidence.
 Compare available standard and nearby alternate quotes using workload, price,
 break-even and failure paths; easier lines and shorter prices are not inherently
 better or worse. Never invent probabilities or claim a proven edge.
+When an export carries market consensus pricing, state price_gap_pp
+(consensus no-vig minus the DraftKings break-even) or its consensus_note for
+every shortlisted pick. A pick with a negative gap needs a specific stated
+reason to remain RECOMMENDED. The gap is a market reference, not a forecast
+or an edge claim; a missing consensus or Fanatics price is never a refusal
+reason, and the gap alone never decides a pick. DraftKings stays the quoted
+price; name Fanatics when it is better at the identical line.
 
 Classify completed, credible exact-quote cases RECOMMENDED; supported cases with
 a named material injury, role or price condition CONDITIONAL; plausible but

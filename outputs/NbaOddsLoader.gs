@@ -76,7 +76,7 @@ const SLATES = [];
 // These properties belong only to the separate NBA Script project.
 const MOBILE_SPREADSHEET_ID_PROPERTY = 'NBA_MOBILE_SPREADSHEET_ID';
 const MOBILE_WEB_TITLE = 'NBA Game Prep';
-const MOBILE_APP_BUILD = '2026.11.02-nba-reliability.1';
+const MOBILE_APP_BUILD = '2026.11.02-nba-consensus.1';
 const MOBILE_EXPORT_FOLDER_PROPERTY = 'NBA_MOBILE_EXPORT_FOLDER_ID';
 const MOBILE_EXPORT_FOLDER_NAME = 'NBA Game Prep Analysis Exports';
 const MOBILE_LAST_EXPORT_PROPERTY = 'NBA_MOBILE_LAST_EXPORT';
@@ -687,7 +687,7 @@ function mobilePropsPlan_(forceRefresh,includeAlternateProps) {
     include_alternate_props:includeAlternates,alternate_reusable_props:alternateReusable,alternate_games_requiring_refresh:alternateToLoad,
     alternate_markets:MOBILE_ALTERNATE_MARKETS.slice(),max_alternate_prop_credits:alternateToLoad.length*MOBILE_ALTERNATE_MARKETS.length,
     max_total_odds_api_credits:toLoad.length*PROP_MARKETS.length+alternateToLoad.length*MOBILE_ALTERNATE_MARKETS.length,
-    started_games:started,night_cap:nbaNightView_(),
+    started_games:started,night_cap:nbaNightView_(),bookmakers_requested:requestBookmakers_().split(','),paid_hold:paidHold_(),
     roster_validation:'NBA player-team enrichment is not included in this load. Live research must confirm unresolved player identity.',no_automatic_paid_retries:true,
     sports_game_odds:sportsGameOddsMobilePlan_(games.filter(g=>!started.some(s=>s.event_id===g.id)),force)};
 }
@@ -736,12 +736,12 @@ function nbaNightPrune_(currentKey) {
 const NBA_SAVED_RESPONSE_PREFIX='NBA_LAST_RAW_';
 function nbaSavedResponseMarkets_(kind) {return (kind==='alternate'?MOBILE_ALTERNATE_MARKETS:PROP_MARKETS).slice();}
 function nbaSaveResponsePointer_(runId,kind,eventId,capturedUtc) {
-  try{PropertiesService.getScriptProperties().setProperty(NBA_SAVED_RESPONSE_PREFIX+kind+'_'+eventId,JSON.stringify({run_id:runId,kind:kind,event_id:eventId,captured_utc:capturedUtc,markets:nbaSavedResponseMarkets_(kind),bookmaker:BOOK}));}
+  try{PropertiesService.getScriptProperties().setProperty(NBA_SAVED_RESPONSE_PREFIX+kind+'_'+eventId,JSON.stringify({run_id:runId,kind:kind,event_id:eventId,captured_utc:capturedUtc,markets:nbaSavedResponseMarkets_(kind),bookmaker:requestedBooks_().join(',')}));}
   catch(ignore){/* Reuse is an optimization; a missing pointer only means no reuse. */}
 }
 function nbaSavedResponsePointer_(kind,eventId,nowMs) {
   let pointer=null;try{pointer=JSON.parse(PropertiesService.getScriptProperties().getProperty(NBA_SAVED_RESPONSE_PREFIX+kind+'_'+eventId)||'null');}catch(ignore){return null;}
-  if(!pointer||pointer.kind!==kind||String(pointer.event_id)!==String(eventId)||pointer.bookmaker!==BOOK)return null;
+  if(!pointer||pointer.kind!==kind||String(pointer.event_id)!==String(eventId)||pointer.bookmaker!==requestedBooks_().join(','))return null;
   if(JSON.stringify(pointer.markets)!==JSON.stringify(nbaSavedResponseMarkets_(kind)))return null;
   const age=nowMs-Date.parse(pointer.captured_utc||'');
   return Number.isFinite(age)&&age>=0&&age<SLATE_FRESHNESS_MINUTES*60000?pointer:null;
@@ -808,7 +808,7 @@ function loadPropsForGames_(games,onProgress,preparedRoster) {
       if(onProgress)onProgress(g);
       const expected=PROP_MARKETS.length;
       logRequired_('Mobile props',g.id,'PLANNED','Expected '+expected+' credits; no automatic paid retry.',expected);
-      const response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(g.id)+'/odds','bookmakers='+BOOK+'&markets='+PROP_MARKETS.join(',')+'&oddsFormat=american',true,g.id,expected),payload=json_(response,'Odds');
+      const response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(g.id)+'/odds','bookmakers='+requestBookmakers_()+'&markets='+PROP_MARKETS.join(',')+'&oddsFormat=american',true,g.id,expected),payload=json_(response,'Odds');
       charges.push({event_id:g.id,key_slot:response.slot?response.slot.label:'',actual_credits:numberHeader_(response.headers,'x-requests-last')});
       const time=now_(),rows=propsRows_(g,payload,roster,time);
       replacePropsRows_(rows,g);
@@ -816,6 +816,7 @@ function loadPropsForGames_(games,onProgress,preparedRoster) {
       try { writeLatestNormalizedProps_(normalizeOddsApiEvent_(payload,BOOK),g.id,'mobile_odds_api_refresh');mirrored=true; }
       catch(normalizeError) { log_('NBA_PROPS',g.id,'ERROR','Odds API props loaded but normalized mirror was not updated: '+safeError_(normalizeError),0); }
       if(!mirrored)recordOddsApiLineHistorySafely_(payload,'mobile_props_refresh',g.id);
+      recordComparisonQuotesSafely_(payload,'standard',time);
       const idx=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length),i=idx.findIndex(r=>r[0]===g.id);
       if(i>=0)sheet_(TAB_INDEX).getRange(i+2,IDX.PROPS_UPDATED+1).setValue(time);
       log_('Mobile props',g.id,'SUCCESS',rows.length+' rows; '+rows.filter(r=>r[38]!=='MATCHED').length+' unresolved joins',0);successes++;
@@ -832,6 +833,7 @@ function mobileRefreshScheduleAndOdds(approvedCredits,requestId) {
     const staged=nbaStageState_();
     if(staged&&staged.state==='RUNNING')fail_('An NBA export is running. Wait for it before refreshing game odds. No credits were spent.');
     try{nbaLedgerSweep_(null,null);}catch(ignore){}
+    assertNoPaidHold_();
     const night=nbaNightView_();
     if(night.remaining<3)fail_('Tonight\'s '+night.cap+'-credit cap has '+night.remaining+' left; game odds need 3. No request was sent.');
     const run=mobileBeginRun_('schedule_and_odds',[],requestId);
@@ -841,8 +843,9 @@ function mobileRefreshScheduleAndOdds(approvedCredits,requestId) {
       const rows=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length);if(!rows.length)fail_('INDEX has no games after refresh.');
       mobileUpdateRun_(run,'loading_game_odds','Loading game lines.');
       logRequired_('Mobile schedule and odds','','PLANNED','Expected 3 credits for h2h, spreads, totals; no automatic paid retry.',3);
-      const data=odds_('/sports/'+SPORT+'/odds','bookmakers='+BOOK+'&markets=h2h,spreads,totals&oddsFormat=american',true,'',3,run.id,'game-lines');
+      const data=odds_('/sports/'+SPORT+'/odds','bookmakers='+requestBookmakers_()+'&markets=h2h,spreads,totals&oddsFormat=american',true,'',3,run.id,'game-lines');
       if(!Array.isArray(data))fail_('Invalid game lines response.');
+      recordComparisonQuotesSafely_(data,'game',now_());
       rows.forEach(r=>{try{
         const matches=data.filter(g=>g.id===r[0]);if(matches.length!==1)fail_('Event missing/duplicated in game lines.');const g=matches[0];
         if(g.away_team+' @ '+g.home_team!==r[1])fail_('Game lines team mismatch.');const result=gameLines_(g);
@@ -1068,7 +1071,7 @@ function nbaPaidStep_(state,job,step,game) {
     nbaOperation_(state.run_id,kind,eventId,op);
     let response;
     try {
-      response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(eventId)+'/odds','bookmakers='+BOOK+'&markets='+markets.join(',')+'&oddsFormat=american',true,eventId,step.credits,state.run_id,kind+'-'+eventId);
+      response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(eventId)+'/odds','bookmakers='+requestBookmakers_()+'&markets='+markets.join(',')+'&oddsFormat=american',true,eventId,step.credits,state.run_id,kind+'-'+eventId);
     } catch(e) {
       const notSent=!!(e&&e.notSent);
       op.status=notSent?'NOT_SENT':'UNKNOWN';op.message=notSent?'No request was sent: '+safeError_(e):'Paid request outcome is unconfirmed; no automatic retry.';op.error=errorCategory_(e,'LOAD '+kind+'-'+eventId);
@@ -1100,12 +1103,14 @@ function nbaPaidStep_(state,job,step,game) {
       // The mirror records line history itself; history runs separately only if the mirror write fails.
       try{writeLatestNormalizedProps_(normalizeOddsApiEvent_(payload,BOOK),eventId,'mobile_odds_api_refresh');mirrored=true;}catch(e){job.warnings.push(game.matchup+': normalized provider mirror was not updated.');}
       if(!mirrored)recordOddsApiLineHistorySafely_(payload,'mobile_props_refresh',eventId);
+      recordComparisonQuotesSafely_(payload,'standard',String(saved.retrieved_utc||time));
       const index=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length),at=index.findIndex(r=>String(r[IDX.EVENT])===String(eventId));
       if(at>=0)sheet_(TAB_INDEX).getRange(at+2,IDX.PROPS_UPDATED+1).setValue(time);
     } else {
       const rows=alternatePropsRows_(game,payload,[],time);
       replaceAlternateRows_(rows,game);
       recordOddsApiLineHistorySafely_(payload,'mobile_alternate_props_refresh',eventId);
+      recordComparisonQuotesSafely_(payload,'alternate',String(saved.retrieved_utc||time));
     }
     op.status='COMMITTED';op.committed_utc=now_();nbaOperationSafe_(state.run_id,kind,eventId,op);return 'SUCCESS';
   } catch(e) {
@@ -1245,6 +1250,7 @@ function mobileLoadAndExport(plan,requestId) {
     const current=mobileAssertPlan_(plan),active=mobileRunStatus_(),staged=nbaStageState_();
     if(active&&active.state==='RUNNING')fail_('Another export is still running. Wait for its result before starting a new request.');
     if(staged&&staged.state==='RUNNING')fail_('A previous NBA load needs status reconciliation before another paid request.');
+    if(current.max_total_odds_api_credits>0)assertNoPaidHold_();
     const loadable=current.event_ids.length-(current.started_games||[]).length;
     if(loadable<=0)fail_('Every selected game has started, so nothing can be loaded. No credits were spent.');
     const night=current.night_cap||nbaNightView_();
@@ -1410,6 +1416,7 @@ function json_(r,label) { try{return JSON.parse(r.text);}catch(e){fail_(label+':
 function oddsRequest_(path,params,paid,event,expectedCost,runId,operation) {
   if(paid&&(!Number.isFinite(expectedCost)||expectedCost<=0))fail_('Paid Odds API requests require an explicit expected cost.');
   runId=runId||Utilities.getUuid();operation=operation||'odds-'+Utilities.getUuid();
+  if(paid){assertNoPaidHold_();try{requestBookmakers_();}catch(e){e.notSent=true;e.stopPaidBatch=true;throw e;}}
   const ticket=paid?nbaNightReserve_(expectedCost):null;let selected;
   try{selected=paid?nbaSharedCall_('reserve',{run_id:runId,operation:operation,expected_credits:expectedCost}):nbaSharedCall_('free_key',{});}
   catch(e){if(ticket)nbaNightSettle_(ticket,0);if(e&&typeof e==='object')e.notSent=true;throw e;}
@@ -1419,6 +1426,7 @@ function oddsRequest_(path,params,paid,event,expectedCost,runId,operation) {
   try{response=request_(url,paid?'Odds':'Odds metadata',paid,event,true,slot,expectedCost||0);}
   catch(e){if(ticket&&e&&e.notSent)nbaNightSettle_(ticket,0);throw e;}
   if(ticket)nbaNightSettle_(ticket,numberHeader_(response.headers,'x-requests-last'));
+  if(paid)checkOvercharge_(response.headers,expectedCost,operation);
   return response;
 }
 function odds_(path,params,paid,event,expectedCost,runId,operation) {
@@ -2104,11 +2112,12 @@ function loadAlternatePropsForGames_(games,onProgress,preparedRoster) {
       if(onProgress)onProgress(g);
       const expected=MOBILE_ALTERNATE_MARKETS.length;
       logRequired_('Mobile alternate props',g.id,'PLANNED','Expected '+expected+' credits for '+MOBILE_ALTERNATE_MARKETS.join(', ')+'; no automatic paid retry.',expected);
-      const response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(g.id)+'/odds','bookmakers='+BOOK+'&markets='+MOBILE_ALTERNATE_MARKETS.join(',')+'&oddsFormat=american',true,g.id,expected),payload=json_(response,'Odds');
+      const response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(g.id)+'/odds','bookmakers='+requestBookmakers_()+'&markets='+MOBILE_ALTERNATE_MARKETS.join(',')+'&oddsFormat=american',true,g.id,expected),payload=json_(response,'Odds');
       charges.push({event_id:g.id,key_slot:response.slot?response.slot.label:'',actual_credits:numberHeader_(response.headers,'x-requests-last')});
       const time=now_(),rows=alternatePropsRows_(g,payload,roster,time);
       replaceAlternateRows_(rows,g);
       recordOddsApiLineHistorySafely_(payload,'mobile_alternate_props_refresh',g.id);
+      recordComparisonQuotesSafely_(payload,'alternate',time);
       log_('Mobile alternate props',g.id,'SUCCESS',rows.length+' ladder outcomes; '+rows.filter(r=>r[18]!=='MATCHED').length+' unresolved joins',0);successes++;
     } catch(e) {
       const message=safeError_(e);warnings.push(g.matchup+': '+message);log_('Mobile alternate props',g.id,'ERROR',message,0);
@@ -2133,10 +2142,11 @@ function loadCheckedProps(prepared) {
     let successes=0,stoppedMessage='';
     for(const g of games) {
       try {
-        const payload=odds_('/sports/'+SPORT+'/events/'+encodeURIComponent(g.id)+'/odds','bookmakers='+BOOK+'&markets='+PROP_MARKETS.join(',')+'&oddsFormat=american',true,g.id,PROP_MARKETS.length);
+        const payload=odds_('/sports/'+SPORT+'/events/'+encodeURIComponent(g.id)+'/odds','bookmakers='+requestBookmakers_()+'&markets='+PROP_MARKETS.join(',')+'&oddsFormat=american',true,g.id,PROP_MARKETS.length);
         const time=now_(),rows=propsRows_(g,payload,roster,time);
         replacePropsRows_(rows,g);
         recordOddsApiLineHistorySafely_(payload,'desktop_props_refresh',g.id);
+        recordComparisonQuotesSafely_(payload,'standard',time);
         // Stamp after the event's successful write, never for failed or absent events.
         const idx=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length),i=idx.findIndex(r=>r[0]===g.id);
         if(i>=0)sheet_(TAB_INDEX).getRange(i+2,13).setValue(time);
@@ -2174,8 +2184,9 @@ function refreshGameLines() {
   const ui=SpreadsheetApp.getUi();if(ui.alert('Refresh game lines?','Up to 3 credits; one DraftKings request, no automatic retry.',ui.ButtonSet.OK_CANCEL)!==ui.Button.OK)return;
   return run_('Game lines',()=>{
     const rows=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length);if(!rows.length)fail_('Run Refresh Index first.');
-    const data=odds_('/sports/'+SPORT+'/odds','bookmakers='+BOOK+'&markets=h2h,spreads,totals&oddsFormat=american',true,'',3);
+    const data=odds_('/sports/'+SPORT+'/odds','bookmakers='+requestBookmakers_()+'&markets=h2h,spreads,totals&oddsFormat=american',true,'',3);
     if(!Array.isArray(data))fail_('Invalid game lines response.');
+    recordComparisonQuotesSafely_(data,'game',now_());
     rows.forEach(r=>{try{
       const matches=data.filter(g=>g.id===r[0]);if(matches.length!==1)fail_('Event missing/duplicated in game lines.');const g=matches[0];
       if(g.away_team+' @ '+g.home_team!==r[1])fail_('Game lines team mismatch.');
@@ -2295,7 +2306,7 @@ function compactEventAnalysisPayload_(payload,game,timestamp,auditExport) {
     compactGame.odds={actionable:false,reason:old.freshness_reason||'Game prices are missing or older than 90 minutes. Refresh game odds with separate approval.',lines_updated_utc:old.lines_updated_utc||'',bookmaker:old.bookmaker||BOOK};
   }
   return {schema_version:1,kind:'nba_compact_game_analysis',sport:SPORT,league:'NBA',app_build:MOBILE_APP_BUILD,snapshot_id:payload.snapshot_id,export_timestamp_utc:timestamp,event_id:eventId,analysis_eligible:eligibility.eligible,ineligible_reason:eligibility.reason,
-    audit_export:auditExport,game:compactGame,game_markets:gameMarkets,prop_markets:propMarkets,alternate_prop_markets:alternateMarkets,roster_rows:roster,pending_legs:pendingLegs,
+    audit_export:auditExport,pricing_instructions:payload.pricing_instructions||'',game:compactGame,game_markets:gameMarkets,prop_markets:propMarkets,alternate_prop_markets:alternateMarkets,roster_rows:roster,pending_legs:pendingLegs,
     provider_coverage:coverage,cross_provider_diagnostics:diagnostics,provider_usage:payload.provider_usage,
     data_quality:{props_market_count:propMarkets.length,alternate_prop_market_count:alternateMarkets.length,stale_prop_market_count:allProps.length-propMarkets.length,stale_alternate_market_count:allAlternates.length-alternateMarkets.length,roster_row_count:roster.length,pending_leg_count:pendingLegs.length,
       duplicate_provider_observations:Number(diagnostics.same_bookmaker_duplicate_observation_count||0),note:'Raw provider quotes and redundant sheet rows remain only in the audit export.'}};
@@ -2377,10 +2388,14 @@ function buildAnalysisExport_(games,timestamp,providerUsage) {
     [['h2h',game.home_team,'Moneyline',odds.home_moneyline],['h2h',game.away_team,'Moneyline',odds.away_moneyline],['spreads',game.home_team,Number.isFinite(homeSpread)?homeSpread:'',odds.home_spread_price],['spreads',game.away_team,Number.isFinite(awaySpread)?awaySpread:'',odds.away_spread_price],['totals','Over',odds.total,odds.total_over_price],['totals','Under',odds.total,odds.total_under_price]].forEach(item=>{if(Number.isFinite(Number(item[3])))gameMarkets.push({event_id:game.event_id,market_key:item[0],selection:item[1],line:exportValue_(item[2]),price:exportValue_(item[3]),bookmaker:odds.bookmaker||BOOK,source_updated_utc:exportValue_(odds.lines_updated_utc),market_source_times_json:source});});
   });
   exportedGames.forEach(game=>{if(!game.odds.actionable)warnings.push(game.matchup+': game prices are stale or missing; game bets are excluded from actionable analysis.');});
+  const alternateMarkets=alternateRows.map(r=>({event_id:String(r[alternateMap['Event ID']]),player:r[0],team:r[1],market_key:r[4],line:exportValue_(r[5]),side:r[6],price:exportValue_(r[7]),bookmaker:r[12],source_updated_utc:exportValue_(r[14]),updated_utc:exportValue_(r[10])}));
+  // Comparison and consensus are context: a failure leaves notes, never fails the export.
+  try{enrichComparisonPricing_(exportedGames,gameMarkets,propMarkets,alternateMarkets);}
+  catch(e){warnings.push('Price comparison was not added to this export: '+safeError_(e));}
   return {schema_version:3,sport:SPORT,league:'NBA',export_timestamp_utc:timestamp,event_ids:eventIds.slice(),games:exportedGames,
     injury_pull:{status:'SKIPPED',succeeded_on_this_run:false,skipped_on_this_run:true,detail:'Analysis export is sheet-only and did not call Pull Injuries.'},
     game_markets:gameMarkets,props_rows:propRows.map(r=>exportRowObject_(propHeaders,r)),prop_markets:propMarkets,
-    alternate_props_rows:alternateRows.map(r=>exportRowObject_(alternateHeaders,r)),alternate_prop_markets:alternateRows.map(r=>({event_id:String(r[alternateMap['Event ID']]),player:r[0],team:r[1],market_key:r[4],line:exportValue_(r[5]),side:r[6],price:exportValue_(r[7]),bookmaker:r[12],source_updated_utc:exportValue_(r[14]),updated_utc:exportValue_(r[10])})),
+    alternate_props_rows:alternateRows.map(r=>exportRowObject_(alternateHeaders,r)),alternate_prop_markets:alternateMarkets,pricing_instructions:pricingInstructions_(),bookmakers_requested:requestedBooks_(),
     roster_rows:rosterRows.map(r=>exportRowObject_(ROSTER_HEADERS,r)),pending_legs:pendingLegs.map(r=>exportRowObject_(legsTable.headers,r)),
     provider_quotes:providerQuotes,provider_coverage:providerCoverage,provider_coverage_summary:providerCoverageSummary,cross_provider_diagnostics:crossProviderDiagnostics,
     provider_usage:providerUsage||{odds_api:{status:'NOT_RUN'},sports_game_odds:{scope:'NBA coverage test not yet approved',status:'DISABLED_PENDING_COVERAGE_TEST'}},
@@ -3021,3 +3036,272 @@ function showPerformance() {return run_('Performance',()=>{
   log_('Performance','','SUCCESS','Summary refreshed; zero API credits',0);
   SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(s);return rows;
 });}
+
+// -----------------------------------------------------------------------------
+// Phase 2: price comparison. One request names ten books: DraftKings, Fanatics
+// and eight reference books. Up to ten named books count as one region, so
+// every request costs the same as DraftKings alone (5 standard, 5 alternate,
+// 3 game lines). Only DraftKings feeds PROPS, ALT_PROPS, INDEX, line history
+// and exports' quotes. Fanatics goes to COMPARE_QUOTES; the reference books
+// feed one compact MARKET_CONSENSUS row per DraftKings quote. These are market
+// references and a line shopping aid: never a forecast, a probability, an edge
+// claim or a refusal reason.
+let NBA_REQUEST_BOOKMAKERS = 'draftkings,fanatics,fanduel,betmgm,williamhill_us,betrivers,hardrockbet,pinnacle,betonlineag,lowvig';
+const MAX_REQUEST_BOOKMAKERS = 10;
+const TAB_COMPARE_QUOTES = 'COMPARE_QUOTES';
+const COMPARE_QUOTE_HEADERS = ['Event ID','Family','Market Key','Subject','Side','Line','Price','Bookmaker','Source Updated UTC','Captured UTC'];
+const COMPARE_FRESHNESS_MINUTES = 15;
+const COMPARE_RETENTION_DAYS = 7;
+// Books the owner can bet besides DraftKings. Only these are stored quote by quote.
+const BETTABLE_BOOKS = ['draftkings','fanatics'];
+function cellText_(v) {const x=exportValue_(v);return x===undefined||x===null?'':String(x);}
+function requestedBooks_() {return String(NBA_REQUEST_BOOKMAKERS||'').split(',').map(b=>b.trim()).filter(Boolean);}
+// Checked at plan time and before every paid request: an 11th book would make
+// every request cost double, so it is refused before anything is sent.
+function requestBookmakers_() {
+  const list=requestedBooks_(),seen={};
+  if(list[0]!==BOOK)fail_('The bookmaker list must start with '+BOOK+'.');
+  list.forEach(b=>{if(seen[b])fail_('The bookmaker list names '+b+' twice.');seen[b]=true;});
+  if(list.length>MAX_REQUEST_BOOKMAKERS)fail_('The bookmaker list names '+list.length+' books; more than '+MAX_REQUEST_BOOKMAKERS+' would double the credit cost of every request.');
+  return list.join(',');
+}
+function comparisonBooks_() {return requestedBooks_().filter(b=>b!==BOOK&&BETTABLE_BOOKS.indexOf(b)>=0);}
+function comparisonQuotes_(event,family,bookKey) {
+  const book=((event&&event.bookmakers)||[]).find(b=>b&&b.key===bookKey);if(!book)return null;
+  const allowed=family==='game'?['h2h','spreads','totals']:family==='alternate'?MOBILE_ALTERNATE_MARKETS:PROP_MARKETS,out=[];
+  (book.markets||[]).forEach(m=>{
+    if(allowed.indexOf(m.key)<0)return;
+    (m.outcomes||[]).forEach(o=>{
+      if(!o||!Number.isFinite(o.price)||Math.abs(o.price)<100)return; // Comparison data is skipped, never fatal.
+      let subject,side,line='';
+      if(family==='game'){
+        if(m.key==='totals'){if(['Over','Under'].indexOf(o.name)<0||!Number.isFinite(o.point))return;subject='Total';side=o.name;line=o.point;}
+        else {if(!o.name)return;subject=o.name;side=o.name;if(m.key==='spreads'){if(!Number.isFinite(o.point))return;line=o.point;}}
+      } else {
+        if(!o.description||['Over','Under'].indexOf(o.name)<0||!Number.isFinite(o.point))return;subject=o.description;side=o.name;line=o.point;
+      }
+      out.push([String(event.id),family,m.key,subject,side,line,o.price,bookKey,m.last_update||'']);
+    });
+  });
+  return out;
+}
+function recordComparisonQuotes_(events,family,time) {
+  const books=comparisonBooks_();if(!books.length)return;
+  const list=(Array.isArray(events)?events:[events]).filter(ev=>ev&&ev.id);if(!list.length)return;
+  const ids={},rows=[];
+  list.forEach(ev=>{ids[String(ev.id)]=true;books.forEach(book=>{
+    const quotes=comparisonQuotes_(ev,family,book);
+    if(!quotes||!quotes.length){rows.push([String(ev.id),family,'','','NOT_OFFERED','','',book,'',time]);return;}
+    quotes.forEach(q=>rows.push(q.concat([time])));
+  });});
+  // Replace this load's event/family; drop anything captured over 7 days ago so the tab stays small.
+  const cutoff=Date.parse(time)-COMPARE_RETENTION_DAYS*86400000;
+  replaceRows_(TAB_COMPARE_QUOTES,COMPARE_QUOTE_HEADERS,[0,1,9],r=>(ids[String(r[0])]&&String(r[1])===family)||Date.parse(cellText_(r[9]))<cutoff,rows);
+}
+// Comparison and consensus are optional context: their failure never fails a load.
+function recordComparisonQuotesSafely_(events,family,time) {
+  try{recordComparisonQuotes_(events,family,time);}
+  catch(e){log_('Comparison quotes','','ERROR','DraftKings data loaded; '+family+' comparison quotes were not updated: '+safeError_(e),0);}
+  try{recordMarketConsensus_(events,family,time);}
+  catch(e){log_('Market consensus','','ERROR','DraftKings data loaded; '+family+' market consensus was not updated: '+safeError_(e),0);}
+}
+
+// Deterministic price arithmetic. These are references, not outcome probabilities.
+function impliedRate_(price) {const p=Number(price);if(price===''||price===null||price===undefined||!Number.isFinite(p)||Math.abs(p)<100)return null;return p>0?100/(p+100):-p/(-p+100);}
+function breakEvenPct_(price) {const v=impliedRate_(price);return v===null?null:Math.round(v*10000)/100;}
+function noVigPct_(price,opposite) {
+  const a=impliedRate_(price),b=impliedRate_(opposite);if(a===null||b===null)return null;
+  return [Math.round(a/(a+b)*10000)/100,Math.round(b/(a+b)*10000)/100];
+}
+function betterPriceBook_(draftkings,other,otherBook) {
+  const a=impliedRate_(draftkings),b=impliedRate_(other);if(a===null||b===null)return BOOK;
+  return a===b?'tie':(b<a?(otherBook||comparisonBooks_()[0]||'other'):BOOK);
+}
+function comparisonIndex_(eventIds) {
+  const books=comparisonBooks_(),book=books[0]||'',quotes={},status={};
+  if(!book)return {book:'',quotes:quotes,status:status};
+  const wanted={};eventIds.forEach(id=>wanted[String(id)]=true);
+  let stored;try{stored=read_(TAB_COMPARE_QUOTES,COMPARE_QUOTE_HEADERS.length);}catch(ignore){return {book:book,quotes:quotes,status:status,unavailable:true};}
+  stored.forEach(r=>{
+    const eventId=String(r[0]),family=String(r[1]),key=eventId+'|'+family;if(!wanted[eventId]||String(r[7])!==book)return;
+    if(String(r[4])==='NOT_OFFERED'){status[key]='NOT_OFFERED';return;}
+    status[key]='OFFERED';(quotes[key]||(quotes[key]=[])).push({market_key:String(r[2]),subject:String(r[3]),side:String(r[4]),line:r[5]===''?'':Number(r[5]),price:Number(r[6]),source:cellText_(r[8]),captured:cellText_(r[9]),used:false});
+  });
+  return {book:book,quotes:quotes,status:status};
+}
+function comparisonSubjectKey_(family,value) {return family==='game'?String(value||'').trim().toLowerCase():normPlayerName_(value);}
+function comparisonMatch_(index,eventId,family,market,subject,side,line,draftkingsTime) {
+  if(!index.book)return null;
+  if(index.unavailable)return {note:'COMPARISON_UNAVAILABLE'};
+  const key=String(eventId)+'|'+family,state=index.status[key];
+  if(!state)return {note:'NOT_REQUESTED'};if(state==='NOT_OFFERED')return {note:'NOT_OFFERED'};
+  const wantLine=line===''||line===null||line===undefined||String(line).toLowerCase()==='moneyline'?'':Number(line),subjectKey=comparisonSubjectKey_(family,subject),sideKey=String(side||'').toLowerCase();
+  const found=(index.quotes[key]||[]).find(q=>q.market_key===market&&comparisonSubjectKey_(family,q.subject)===subjectKey&&q.side.toLowerCase()===sideKey&&(wantLine===''?q.line==='':q.line===wantLine));
+  if(!found)return {note:'NO_MATCHING_LINE'};
+  found.used=true;
+  const a=Date.parse(String(draftkingsTime||'')),b=Date.parse(found.source||found.captured);
+  if(Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)>COMPARE_FRESHNESS_MINUTES*60000)return {note:'STALE_OVER_15_MINUTES'};
+  return {price:found.price};
+}
+function sidePricing_(index,price,opposite,match,consensus) {
+  const out={break_even_pct:breakEvenPct_(price)},noVig=noVigPct_(price,opposite);
+  if(noVig)out.market_reference_no_vig_pct=noVig[0];
+  if(index.book){
+    out.fanatics_price=match&&match.price!==undefined?match.price:null;
+    if(out.fanatics_price===null)out.fanatics_note=match?match.note:'NOT_REQUESTED';
+    out.best_price_book=out.fanatics_price===null?BOOK:betterPriceBook_(price,out.fanatics_price,index.book);
+  }
+  if(consensus)consensusPricing_(out,price,consensus);
+  return out;
+}
+function marketSourceTime_(json,market) {try{return (JSON.parse(String(json||'{}'))||{})[market]||'';}catch(ignore){return '';}}
+// Adds pricing to every exported DraftKings quote and a comparison summary per game.
+function enrichComparisonPricing_(games,gameMarkets,propMarkets,alternateMarkets) {
+  const index=comparisonIndex_(games.map(g=>g.event_id)),cIndex=consensusIndex_(games.map(g=>g.event_id));
+  const cm=(eventId,family,market,subject,side,line)=>consensusMatch_(cIndex,eventId,family,market,subject,side,line);
+  gameMarkets.forEach(q=>{
+    const other=gameMarkets.find(x=>x!==q&&x.event_id===q.event_id&&x.market_key===q.market_key&&x.selection!==q.selection);
+    const subject=q.market_key==='totals'?'Total':q.selection,time=marketSourceTime_(q.market_source_times_json,q.market_key)||q.source_updated_utc,line=q.market_key==='h2h'?'':q.line;
+    q.pricing=sidePricing_(index,q.price,other?other.price:null,comparisonMatch_(index,q.event_id,'game',q.market_key,subject,q.selection,line,time),cm(q.event_id,'game',q.market_key,subject,q.selection,line));
+  });
+  propMarkets.forEach(q=>{
+    const time=q.source_updated_utc;q.pricing={};
+    if(impliedRate_(q.over_price)!==null)q.pricing.over=sidePricing_(index,q.over_price,q.under_price,comparisonMatch_(index,q.event_id,'standard',q.market_key,q.player,'Over',q.line,time),cm(q.event_id,'standard',q.market_key,q.player,'Over',q.line));
+    if(impliedRate_(q.under_price)!==null)q.pricing.under=sidePricing_(index,q.under_price,q.over_price,comparisonMatch_(index,q.event_id,'standard',q.market_key,q.player,'Under',q.line,time),cm(q.event_id,'standard',q.market_key,q.player,'Under',q.line));
+  });
+  alternateMarkets.forEach(q=>{
+    const other=alternateMarkets.find(x=>x!==q&&x.event_id===q.event_id&&x.market_key===q.market_key&&normPlayerName_(x.player)===normPlayerName_(q.player)&&Number(x.line)===Number(q.line)&&String(x.side)!==String(q.side));
+    q.pricing=sidePricing_(index,q.price,other?other.price:null,comparisonMatch_(index,q.event_id,'alternate',q.market_key,q.player,q.side,q.line,q.source_updated_utc),cm(q.event_id,'alternate',q.market_key,q.player,q.side,q.line));
+  });
+  games.forEach(g=>{g.market_consensus=consensusGameSummary_(cIndex,g,gameMarkets,propMarkets,alternateMarkets);});
+  games.forEach(g=>{
+    if(!index.book){g.comparison=null;return;}
+    const id=String(g.event_id),familyStatus=f=>index.status[id+'|'+f]||'NOT_REQUESTED',draftkingsLines={};
+    propMarkets.filter(q=>q.event_id===id).forEach(q=>draftkingsLines[q.market_key+'|'+normPlayerName_(q.player)]=true);
+    const otherLines=(index.quotes[id+'|standard']||[]).filter(q=>!q.used&&draftkingsLines[q.market_key+'|'+normPlayerName_(q.subject)]).map(q=>({market_key:q.market_key,subject:q.subject,side:q.side,line:q.line,price:q.price,note:'NOT_COMPARABLE_DIFFERENT_LINE'}));
+    g.comparison={book:index.book,status:familyStatus('standard')!=='NOT_REQUESTED'?familyStatus('standard'):familyStatus('game'),families:{game:familyStatus('game'),standard:familyStatus('standard'),alternate:familyStatus('alternate')},freshness_minutes:COMPARE_FRESHNESS_MINUTES,other_lines:otherLines};
+  });
+}
+function comparisonInstructions_() {
+  return 'PRICE COMPARISON: Each DraftKings quote carries pricing. break_even_pct is the win rate the price requires. market_reference_no_vig_pct (when both sides are posted) is a market reference after removing the DraftKings margin, not a true probability. fanatics_price and best_price_book appear when Fanatics posted the identical player or team, market, side, and line in the same load; otherwise fanatics_note explains why. game.comparison.other_lines are Fanatics quotes at different lines: they are not comparable and must not be priced against DraftKings. DraftKings remains the logged and quoted price. When Fanatics is better at the identical line, name it as the best available price. Missing Fanatics data is never a reason to pass.';
+}
+
+// Market consensus. For each DraftKings quote, every reference book that posted
+// the identical player or team, market, side and line within 15 minutes of
+// DraftKings counts as a book at the line; those that also posted the opposite
+// side give a no-vig price, and the median of at least three is the consensus.
+const CONSENSUS_MIN_BOOKS = 3;
+const TAB_MARKET_CONSENSUS = 'MARKET_CONSENSUS';
+const MARKET_CONSENSUS_HEADERS = ['Event ID','Family','Market Key','Subject','Side','Line','DraftKings Price','Books At Line','Books In Consensus','Consensus No-vig %','Best Reference Price','Best Reference Book','Note','DraftKings Updated UTC','Captured UTC'];
+function referenceBooks_() {return requestedBooks_().filter(b=>b!==BOOK);}
+function consensusEnabled_() {return referenceBooks_().length>=CONSENSUS_MIN_BOOKS;}
+function round2_(v) {return Math.round(v*100)/100;}
+function median_(values) {const v=values.slice().sort((a,b)=>a-b),m=Math.floor(v.length/2);return v.length%2?v[m]:(v[m-1]+v[m])/2;}
+function consensusKey_(family,market,subject,side,line) {
+  const l=line===''||line===null||line===undefined||String(line).toLowerCase()==='moneyline'?'':String(Number(line));
+  return [family,market,comparisonSubjectKey_(family,subject),String(side||'').trim().toLowerCase(),l].join('|');
+}
+// The other side of the same market at the same line, from one book's quotes.
+function oppositeQuote_(quotes,family,q) {
+  const market=q[2],subject=comparisonSubjectKey_(family,q[3]),side=String(q[4]).toLowerCase(),line=q[5]===''?'':Number(q[5]);
+  if(family==='game'&&market==='h2h')return quotes.find(x=>x[2]===market&&comparisonSubjectKey_(family,x[3])!==subject)||null;
+  if(family==='game'&&market==='spreads')return quotes.find(x=>x[2]===market&&comparisonSubjectKey_(family,x[3])!==subject&&Number(x[5])===-line)||null;
+  const other=side==='over'?'under':side==='under'?'over':'';if(!other)return null;
+  return quotes.find(x=>x[2]===market&&comparisonSubjectKey_(family,x[3])===subject&&String(x[4]).toLowerCase()===other&&Number(x[5])===line)||null;
+}
+function consensusRowsForEvent_(event,family,time) {
+  const id=String(event.id),dk=comparisonQuotes_(event,family,BOOK);if(!dk||!dk.length)return [];
+  const byBook={},returned=[];
+  referenceBooks_().forEach(b=>{const quotes=comparisonQuotes_(event,family,b)||[],index={};quotes.forEach(q=>index[consensusKey_(family,q[2],q[3],q[4],q[5])]=q);byBook[b]={quotes:quotes,index:index};if(quotes.length)returned.push(b);});
+  const rows=[[id,family,'','','STATUS','','','','','','','',returned.length?'BOOKS:'+returned.join(','):'NO_REFERENCE_BOOKS','',time]];
+  dk.forEach(q=>{
+    const key=consensusKey_(family,q[2],q[3],q[4],q[5]),dkTime=Date.parse(String(q[8]||'')),atLine=[],noVig=[];
+    returned.forEach(b=>{
+      const r=byBook[b].index[key];if(!r)return;
+      const t=Date.parse(String(r[8]||''));if(Number.isFinite(dkTime)&&Number.isFinite(t)&&Math.abs(dkTime-t)>COMPARE_FRESHNESS_MINUTES*60000)return;
+      atLine.push({book:b,price:r[6]});
+      const opposite=oppositeQuote_(byBook[b].quotes,family,r),pair=opposite?noVigPct_(r[6],opposite[6]):null;if(pair)noVig.push(pair[0]);
+    });
+    if(!atLine.length)return;
+    const best=atLine.reduce((a,x)=>impliedRate_(x.price)<impliedRate_(a.price)?x:a);
+    const consensus=noVig.length>=CONSENSUS_MIN_BOOKS?round2_(median_(noVig)):'';
+    const note=consensus!==''?'':!noVig.length?'ONE_SIDED':'FEWER_THAN_'+CONSENSUS_MIN_BOOKS+'_BOOKS';
+    rows.push([id,family,q[2],q[3],q[4],q[5],q[6],atLine.length,noVig.length,consensus,best.price,best.book,note,q[8]||'',time]);
+  });
+  return rows;
+}
+function recordMarketConsensus_(events,family,time) {
+  if(!consensusEnabled_())return;
+  const list=(Array.isArray(events)?events:[events]).filter(ev=>ev&&ev.id);if(!list.length)return;
+  const ids={},rows=[];
+  list.forEach(ev=>{ids[String(ev.id)]=true;consensusRowsForEvent_(ev,family,time).forEach(r=>rows.push(r));});
+  // Replace this load's event/family; drop rows captured over 7 days ago.
+  const cutoff=Date.parse(time)-COMPARE_RETENTION_DAYS*86400000;
+  replaceRows_(TAB_MARKET_CONSENSUS,MARKET_CONSENSUS_HEADERS,[0,1,14],r=>(ids[String(r[0])]&&String(r[1])===family)||Date.parse(cellText_(r[14]))<cutoff,rows);
+}
+function consensusIndex_(eventIds) {
+  const out={enabled:consensusEnabled_(),rows:{},status:{}};if(!out.enabled)return out;
+  const wanted={};eventIds.forEach(id=>wanted[String(id)]=true);
+  let stored;try{stored=read_(TAB_MARKET_CONSENSUS,MARKET_CONSENSUS_HEADERS.length);}catch(ignore){out.unavailable=true;return out;}
+  stored.forEach(r=>{
+    const eventId=String(r[0]),family=String(r[1]);if(!wanted[eventId])return;
+    if(String(r[4])==='STATUS'){out.status[eventId+'|'+family]=String(r[12]);return;}
+    out.rows[eventId+'|'+consensusKey_(family,String(r[2]),String(r[3]),String(r[4]),r[5])]={dk_price:Number(r[6]),books_at_line:Number(r[7]),consensus:r[9]===''?null:Number(r[9]),best_price:r[10]===''?null:Number(r[10]),best_book:String(r[11]||''),note:String(r[12]||'')};
+  });
+  return out;
+}
+function consensusMatch_(cIndex,eventId,family,market,subject,side,line) {
+  if(!cIndex.enabled)return null;
+  if(cIndex.unavailable)return {note:'CONSENSUS_UNAVAILABLE'};
+  // NOT_RECORDED: no consensus was saved for this game and family (reused from
+  // an earlier load, or the save failed; the LOG says which).
+  const status=cIndex.status[String(eventId)+'|'+family];
+  if(!status)return {note:'NOT_RECORDED'};if(status==='NO_REFERENCE_BOOKS')return {note:'NO_REFERENCE_BOOKS'};
+  return cIndex.rows[String(eventId)+'|'+consensusKey_(family,market,subject,side,line)]||{note:'NO_BOOKS_AT_LINE'};
+}
+// price_gap_pp = consensus minus the DraftKings break-even: positive means
+// DraftKings pays more than the reference books imply. Not an edge claim.
+function consensusPricing_(out,price,c) {
+  const empty=note=>{out.books_at_line=0;out.consensus_no_vig_pct=null;out.price_gap_pp=null;out.consensus_note=note;out.best_reference_price=null;out.best_reference_book=null;};
+  if(c.dk_price===undefined)return empty(c.note);
+  if(Number(price)!==c.dk_price)return empty('DK_PRICE_CHANGED');
+  out.books_at_line=c.books_at_line;out.consensus_no_vig_pct=c.consensus;
+  out.price_gap_pp=c.consensus===null||out.break_even_pct===null?null:round2_(c.consensus-out.break_even_pct);
+  if(c.consensus===null)out.consensus_note=c.note||'NO_CONSENSUS';
+  out.best_reference_price=c.best_price;out.best_reference_book=c.best_book||null;
+}
+function consensusGameSummary_(cIndex,g,gameMarkets,propMarkets,alternateMarkets) {
+  if(!cIndex.enabled)return null;
+  const id=String(g.event_id),family=f=>{const s=cIndex.unavailable?'CONSENSUS_UNAVAILABLE':cIndex.status[id+'|'+f]||'NOT_RECORDED';return s.indexOf('BOOKS:')===0?{status:'OFFERED',books_returned:s.slice(6).split(',')}:{status:s,books_returned:[]};};
+  let sides=0,withConsensus=0;const count=p=>{if(!p||typeof p.break_even_pct!=='number')return;sides++;if(typeof p.consensus_no_vig_pct==='number')withConsensus++;};
+  gameMarkets.filter(q=>String(q.event_id)===id).forEach(q=>count(q.pricing));
+  propMarkets.filter(q=>String(q.event_id)===id).forEach(q=>{const p=q.pricing||{};count(p.over);count(p.under);});
+  alternateMarkets.filter(q=>String(q.event_id)===id).forEach(q=>count(q.pricing));
+  return {reference_books_requested:referenceBooks_(),min_books:CONSENSUS_MIN_BOOKS,freshness_minutes:COMPARE_FRESHNESS_MINUTES,families:{game:family('game'),standard:family('standard'),alternate:family('alternate')},draftkings_sides:sides,sides_with_consensus:withConsensus};
+}
+function consensusInstructions_() {
+  return 'MARKET CONSENSUS: Pricing also compares each DraftKings quote with up to eight reference books that posted the identical player or team, market, side, and line within 15 minutes of DraftKings; books_at_line counts them. consensus_no_vig_pct is the median no-vig price across the reference books that posted both sides (at least 3 are needed; otherwise consensus_note says why). price_gap_pp is consensus_no_vig_pct minus break_even_pct: positive means DraftKings pays more than the other books imply, negative means it pays less. It is a market reference, not a forecast, a probability, or an edge claim. For every shortlisted pick, state price_gap_pp or its consensus_note. A pick with a negative price_gap_pp needs a specific stated reason to remain RECOMMENDED. A missing consensus is never a reason to pass, and the gap alone never decides a pick. best_reference_price and best_reference_book are context only: the owner bets only at DraftKings and Fanatics.';
+}
+function pricingInstructions_() {return comparisonInstructions_()+' '+consensusInstructions_();}
+
+// Overcharge hold: if a paid request is charged more than its reviewed maximum,
+// the data is kept but no new paid request is sent until the owner acknowledges.
+const PAID_HOLD_PROPERTY = 'NBA_PAID_HOLD';
+function paidHold_() {try{return JSON.parse(PropertiesService.getScriptProperties().getProperty(PAID_HOLD_PROPERTY)||'null');}catch(ignore){return null;}}
+function assertNoPaidHold_() {const hold=paidHold_();if(hold)failNotSent_('Paid Odds API requests are paused: '+hold.message+' Review the LOG, then run acknowledgeOverchargeHold in the NBA Apps Script editor. No request was sent.');}
+function setPaidHold_(actual,expected,label) {
+  const time=now_(),message='A request ('+String(label||'odds')+') was charged '+actual+' credits against a reviewed maximum of '+expected+' at '+time+'.';
+  try{PropertiesService.getScriptProperties().setProperty(PAID_HOLD_PROPERTY,JSON.stringify({actual:actual,expected:expected,label:String(label||''),utc:time,message:message}));}catch(ignore){}
+  log_('Paid request hold','','OVERCHARGE',message+' The data was kept; paid requests are paused until the owner acknowledges this.',actual);
+  return message;
+}
+function checkOvercharge_(headers,expected,label) {
+  const actual=numberHeader_(headers||{},'x-requests-last');
+  if(Number.isFinite(actual)&&Number.isFinite(expected)&&actual>expected)setPaidHold_(actual,expected,label);
+}
+// Owner-only, run from the Apps Script editor after reviewing the LOG.
+function acknowledgeOverchargeHold() {
+  const hold=paidHold_();PropertiesService.getScriptProperties().deleteProperty(PAID_HOLD_PROPERTY);
+  log_('Paid request hold','','ACKNOWLEDGED',hold?hold.message:'No hold was set.',0);
+  const result={cleared:Boolean(hold)};console.log(JSON.stringify(result));return result;
+}

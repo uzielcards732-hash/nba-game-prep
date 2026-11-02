@@ -2,6 +2,42 @@
 
 ## Current state
 
+**Phase 2 price comparison (2026-11-02, cloud session, branch
+`claude/phase2-consensus` from Phase 1, build `2026.11.02-nba-consensus.1`,
+LOCAL ONLY, NOT DEPLOYED; live stays version 14):**
+
+- Ten book request on every paid props and game lines call: draftkings,
+  fanatics, fanduel, betmgm, williamhill_us, betrivers, hardrockbet, pinnacle,
+  betonlineag, lowvig. Ten books = one region, so costs stay 5 standard, 5
+  alternate, 3 game lines. 11th book, duplicate, or a list not led by
+  DraftKings is refused before any request.
+- COMPARE_QUOTES (new tab, Fanatics only) and MARKET_CONSENSUS (new tab, one
+  compact row per DraftKings quote plus a STATUS row per game and family), both
+  replaced per event and family with 7 day retention. Columns: as in
+  `COMPARE_QUOTE_HEADERS` and `MARKET_CONSENSUS_HEADERS`. No existing tab
+  changed.
+- Export pricing on every DraftKings quote: break_even_pct,
+  market_reference_no_vig_pct, fanatics_price / fanatics_note,
+  best_price_book, books_at_line, consensus_no_vig_pct (median of at least 3
+  two-sided reference books at the identical line within 15 minutes),
+  price_gap_pp, consensus_note, best_reference_price/book. Per game
+  `comparison` and `market_consensus` summaries. Compact files carry
+  `pricing_instructions`. Failures never fail a load or export.
+- Overcharge hold (`NBA_PAID_HOLD`): a charge above the previewed maximum keeps
+  the data and pauses all paid requests until `acknowledgeOverchargeHold`.
+- Handoff wording (from the NFL rule the owner approved 2026-10-26): state
+  price_gap_pp or consensus_note per shortlisted pick; a negative gap needs a
+  stated reason to stay RECOMMENDED; never a refusal reason. Added to
+  `AGENTS.md` and the phone request.
+- Saved response pointers now record the ten book list; old DraftKings only
+  pointers are ignored.
+- Offline: 11 suites pass; new `test-nba-consensus.cjs` 20, of which 19 fail on
+  live v14 source (the 20th is a naming guard).
+- Credits: 0 to build and test; projected 0 extra per load if ten books stay
+  one region. The supervised test must show `x-requests-last` 5 for one
+  standard game.
+- Phase 1 supervised paid test is still pending.
+
 **Phase 1 reliability, speed, deploy button: DEPLOYED as version 14, build
 `2026.11.02-nba-reliability.1` (commit `759a1f1` on `claude/phase1-reliability`,
 2026-11-02 18:23Z, owner "deploy now", deploy button run 41500024745; all
@@ -307,3 +343,5 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Zero provider calls, emails or deployments; NFL untouched. Branch pushed on owner OK; not merged or deployed.
 - 2026-11-02: Workflow file pushed to main (owner OK); first deploy button check passed; live v13 byte-matches 140074a; tag nba-v13 recorded. Nothing deployed.
 - 2026-11-02: Deployed Phase 1 as version 14 via the deploy button (run 41500024745); verified byte-match and tagged nba-v14. Paid test pending.
+- 2026-11-02: Phase 2 built on `claude/phase2-consensus`: ten book request, Fanatics COMPARE_QUOTES, MARKET_CONSENSUS with price_gap_pp, overcharge hold, pricing in exports and handoffs.
+- 2026-11-02: New suite test-nba-consensus (20); 19 fail on live v14 source; all 11 suites pass. Local only, not deployed.

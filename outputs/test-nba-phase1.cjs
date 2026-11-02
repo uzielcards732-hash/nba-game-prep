@@ -73,10 +73,11 @@ test('F3: a saved response whose Sheet write failed is reused by the next run wi
 });
 test('F3: the pointer is ignored when older than 90 minutes, for other markets or events, or on force refresh',()=>{
  const {env}=setup();const now=env.now(),iso=ms=>new Date(ms).toISOString();
- const set=(captured,markets,event)=>env.props.set('NBA_LAST_RAW_standard_event1',JSON.stringify({run_id:'x',kind:'standard',event_id:event||'event1',captured_utc:iso(captured),markets:markets||env.run('PROP_MARKETS.slice()'),bookmaker:'draftkings'}));
+ const set=(captured,markets,event,books)=>env.props.set('NBA_LAST_RAW_standard_event1',JSON.stringify({run_id:'x',kind:'standard',event_id:event||'event1',captured_utc:iso(captured),markets:markets||env.run('PROP_MARKETS.slice()'),bookmaker:books||env.run("requestedBooks_().join(',')")}));
  set(now-89*60000);assert.ok(env.run('nbaSavedResponsePointer_("standard","event1",Date.now())'));
  set(now-91*60000);assert.equal(env.run('nbaSavedResponsePointer_("standard","event1",Date.now())'),null,'91 minutes old');
  set(now-5*60000,['player_points']);assert.equal(env.run('nbaSavedResponsePointer_("standard","event1",Date.now())'),null,'different markets');
+ set(now-5*60000,null,null,'draftkings');assert.equal(env.run('nbaSavedResponsePointer_("standard","event1",Date.now())'),null,'a pointer from a DraftKings-only request');
  set(now-5*60000,null,'event2');assert.equal(env.run('nbaSavedResponsePointer_("standard","event1",Date.now())'),null,'different event');
  set(now-5*60000);const forced=env.run('mobilePropsPlan_(true,false)');assert.equal(forced.max_prop_credits,10,'force refresh buys again');
  const normal=env.run('mobilePropsPlan_(false,false)');assert.equal(normal.max_prop_credits,5);

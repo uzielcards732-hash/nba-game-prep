@@ -3,7 +3,7 @@
 ## Current state
 
 **Phase 0 baseline (2026-11-02, cloud session, free checks only, branch
-`claude/phase0-baseline`, local only, not pushed, nothing deployed):**
+`claude/phase0-baseline`, pushed to GitHub 2026-11-02 on owner OK, not merged, nothing deployed):**
 
 - Secret scan of all 12 commits and every tracked file: no API keys, tokens,
   OAuth or clasp credentials, private keys or invitation links. The public

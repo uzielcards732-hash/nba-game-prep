@@ -4,7 +4,7 @@
 
 **Phase 1 reliability, speed, deploy button (2026-11-02, cloud session,
 branch `claude/phase1-reliability`, build `2026.11.02-nba-reliability.1`,
-LOCAL ONLY, NOT DEPLOYED; live stays version 13):**
+pushed to GitHub 2026-11-02 on owner OK, NOT DEPLOYED; live stays version 13):**
 
 - Paid request fixes ported from NFL F1 to F8. F1: a failed shared ledger
   write after a paid response no longer throws the response away; it is saved,
@@ -292,4 +292,4 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Added the NBA deploy button (check, deploy, rollback) with byte match checks and an NBA only library pin guard; needs CLASPRC_JSON and NBA_SCRIPT_ID secrets.
 - 2026-11-02: New suites test-nba-phase1 (25) and test-nba-speed (5) plus deploy/test (11); all 10 suites pass; 22 server side tests fail on live v13 as expected.
 - 2026-11-02: Removed the copied NFL test-loader.cjs; adjusted three existing suites' mocks for the new cap, required PLANNED log and build.
-- 2026-11-02: Zero provider calls, emails or deployments; NFL untouched. Local branch only until the owner approves a push.
+- 2026-11-02: Zero provider calls, emails or deployments; NFL untouched. Branch pushed on owner OK; not merged or deployed.

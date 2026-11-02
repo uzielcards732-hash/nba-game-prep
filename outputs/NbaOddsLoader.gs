@@ -38,7 +38,7 @@ const PROP_MARKETS = [
 const SPORTS_GAME_ODDS_NBA_ENABLED = false;
 
 // Optional mobile ladders. They are never fetched unless the owner opts in
-// during the cost review: three requested markets add at most three credits
+// during the cost review: five requested markets add at most five credits
 // per stale selected game in the DraftKings US region.
 const MOBILE_ALTERNATE_MARKETS = [
   'player_points_alternate',
@@ -76,7 +76,7 @@ const SLATES = [];
 // These properties belong only to the separate NBA Script project.
 const MOBILE_SPREADSHEET_ID_PROPERTY = 'NBA_MOBILE_SPREADSHEET_ID';
 const MOBILE_WEB_TITLE = 'NBA Game Prep';
-const MOBILE_APP_BUILD = '2026.10.07-nba.1';
+const MOBILE_APP_BUILD = '2026.10.22-nba-team-labels.1';
 const MOBILE_EXPORT_FOLDER_PROPERTY = 'NBA_MOBILE_EXPORT_FOLDER_ID';
 const MOBILE_EXPORT_FOLDER_NAME = 'NBA Game Prep Analysis Exports';
 const MOBILE_LAST_EXPORT_PROPERTY = 'NBA_MOBILE_LAST_EXPORT';
@@ -84,8 +84,12 @@ const MOBILE_RUN_STATUS_PROPERTY = 'NBA_MOBILE_RUN_STATUS';
 const MOBILE_EXPORT_RUN_PREFIX = 'NBA_MOBILE_EXPORT_RUN_';
 const MOBILE_EMAIL_NOTIFICATIONS_PROPERTY = 'NBA_MOBILE_EMAIL_NOTIFICATIONS';
 const MOBILE_EXPORT_EMAIL_PREFIX = 'NBA_MOBILE_EXPORT_EMAIL_';
-const MOBILE_WEB_APP_URL = '';
+const NBA_STAGE_STATE_PROPERTY = 'NBA_MOBILE_STAGE_STATE';
+const NBA_STAGE_OPERATION_PREFIX = 'NBA_STAGE_OPERATION_';
+const MOBILE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzRSWWd4ktxD1aKObbeDa5aHvRU1VdWfRQR8vhb724N3gVDNE5Y6XtEx6M_AFCAZhkO/exec';
 const MOBILE_RUN_UNCONFIRMED_MINUTES = 10;
+const NBA_DAILY_GAMES_STATUS_PROPERTY = 'NBA_DAILY_GAMES_STATUS';
+const NBA_GAME_PRICE_FRESHNESS_MINUTES = 90;
 
 const INDEX_HEADERS = [
   'eventId', 'Matchup', 'Kickoff ET', 'Favorite', 'Spread', 'Total',
@@ -122,6 +126,26 @@ const IDX = Object.freeze({EVENT:0,MATCHUP:1,SLATE:10,LOAD:11,PROPS_UPDATED:12,H
 const KEY_POOL_STATE_PROPERTY = 'NBA_ODDS_API_KEY_POOL_STATE';
 const KEY_POOL_PROPERTY_PREFIX = 'NBA_ODDS_API_KEY_';
 const KEY_POOL_MAX_SLOTS = 8;
+let nbaSharedRegistered_ = false;
+
+function nbaSharedCall_(action,data,admin) {
+  try {
+    if(typeof SharedNFL==='undefined')fail_('The shared key library is unavailable. No request was sent.');
+    if(!nbaSharedRegistered_){SharedNFL.registerNBA();nbaSharedRegistered_=true;}
+    return admin?SharedNFL.admin(action,data||{}):SharedNFL.runtime(action,data||{});
+  } catch(error) {
+    if(error&&error.loaderSafe)throw error;
+    if(error&&error.sharedSafe)fail_(error.message);
+    fail_('The shared key pool is unavailable. No request was sent; no local-key fallback was used.');
+  }
+}
+function nbaSharedKeyView_() {
+  const pool=nbaSharedCall_('slots',{}),slots=pool.slots||[],preferred=slots.find(s=>s.preferred);
+  return {shared:true,active_slot:preferred?preferred.id:'',notifications:mobileEmailSettings_(),slots:slots.map(s=>({
+    label:s.id,configured:true,active:s.preferred,remaining:poolDisplayValue_(s.available),used:poolDisplayValue_(s.used),last_cost:poolDisplayValue_(s.last_cost),
+    state:s.enabled?s.state:'DISABLED',updated:s.checked_utc||'NEVER',balance_checked:s.checked_utc||'',refresh_status:s.check_status||'CACHED',refresh_attempt:s.last_check_utc||'',reserved:s.reserved||0
+  }))};
+}
 
 const PARLAY_HEADERS = [
   'Parlay ID','Created UTC','Slate / Label','Bookmaker','Leg Count',
@@ -253,6 +277,14 @@ function mobileDateValue_(value) {
   if(Object.prototype.toString.call(value)==='[object Date]')return value.toISOString();
   return String(value);
 }
+function nbaGameTime_(value,now) {
+  const timestamp=Date.parse(mobileDateValue_(value));
+  if(!Number.isFinite(timestamp))return {date_key:'unknown',day_label:'Date unavailable',group_label:'Date unavailable',time_label:'Tipoff unavailable',full_label:'Tipoff unavailable'};
+  const date=new Date(timestamp),zone='America/New_York',today=Utilities.formatDate(new Date(now===undefined?Date.now():now),zone,'yyyy-MM-dd');
+  const parts=today.split('-').map(Number),tomorrow=new Date(Date.UTC(parts[0],parts[1]-1,parts[2]+1)).toISOString().slice(0,10);
+  const key=Utilities.formatDate(date,zone,'yyyy-MM-dd'),day=Utilities.formatDate(date,zone,'EEE, MMM d'),time=Utilities.formatDate(date,zone,'h:mm a')+' ET';
+  return {date_key:key,day_label:day,group_label:(key===today?'Today · ':key===tomorrow?'Tomorrow · ':key<today?'Past · ':'')+day,time_label:time,full_label:day+' · '+time};
+}
 function mobileIndexTable_() {
   const ss=spreadsheet_(),s=ss.getSheetByName(TAB_INDEX);
   if(!s||s.getLastRow()<2)return [];
@@ -260,17 +292,46 @@ function mobileIndexTable_() {
 }
 function mobileDashboard() {
   const now=Date.now(),rows=mobileIndexTable_();
-  return {title:MOBILE_WEB_TITLE,app_build:MOBILE_APP_BUILD,generated_utc:now_(),slates:SLATES.slice(),paid_actions_available:false,last_export:mobileLastExport_(),operation:mobileRunStatus_(),
+  return {title:MOBILE_WEB_TITLE,app_build:MOBILE_APP_BUILD,generated_utc:now_(),slates:SLATES.slice(),paid_actions_available:false,last_export:mobileLastExport_(),operation:mobileRunStatus_(),daily_games:nbaDailyGamesStatus_(),
     games:rows.filter(r=>String(r[IDX.EVENT]||'').trim()).map(r=>{
       const updated=mobileDateValue_(r[IDX.PROPS_UPDATED]),updatedMs=Date.parse(updated),kickoffUtc=mobileDateValue_(r[IDX.KICKOFF]),kickoffMs=Date.parse(kickoffUtc);
-      const started=Number.isFinite(kickoffMs)&&kickoffMs<=now;
-      return {event_id:String(r[IDX.EVENT]),matchup:String(r[IDX.MATCHUP]||''),slate:String(r[IDX.SLATE]||'Other games'),
-        home_team:mobileDateValue_(r[IDX.HOME]),away_team:mobileDateValue_(r[IDX.AWAY]),kickoff_et:mobileDateValue_(r[2]),kickoff_utc:kickoffUtc,selected:r[IDX.LOAD]===true,
+      const started=Number.isFinite(kickoffMs)&&kickoffMs<=now,linesUtc=mobileDateValue_(r[IDX.LINES_UPDATED]),priceFreshness=nbaGameOddsFresh_(r,new Date(now).toISOString()),time=nbaGameTime_(kickoffUtc,now);
+      return {event_id:String(r[IDX.EVENT]),matchup:String(r[IDX.MATCHUP]||''),slate:time.day_label,game_date_et:time.date_key,game_day_label:time.group_label,tipoff_time_et:time.time_label,
+        home_team:mobileDateValue_(r[IDX.HOME]),away_team:mobileDateValue_(r[IDX.AWAY]),kickoff_et:time.full_label,kickoff_utc:kickoffUtc,selected:r[IDX.LOAD]===true,
         props_updated_utc:updated,props_fresh:Number.isFinite(updatedMs)&&now-updatedMs>=0&&now-updatedMs<SLATE_FRESHNESS_MINUTES*60000,
         game_state:started?'STARTED':(Number.isFinite(updatedMs)&&now-updatedMs>=0&&now-updatedMs<SLATE_FRESHNESS_MINUTES*60000?'FRESH':'STALE'),
+        game_odds_updated_utc:linesUtc,game_odds_fresh:priceFreshness.fresh,game_odds_freshness_reason:priceFreshness.reason,
         odds:{favorite:mobileDateValue_(r[3]),spread:mobileDateValue_(r[4]),total:mobileDateValue_(r[5]),home_moneyline:mobileDateValue_(r[6]),away_moneyline:mobileDateValue_(r[7]),bookmaker:mobileDateValue_(r[IDX.BOOK])}};
-    })};
+    }).sort((a,b)=>(Date.parse(a.kickoff_utc)||Infinity)-(Date.parse(b.kickoff_utc)||Infinity))};
 }
+function nbaDailyGamesStatus_() {
+  const raw=PropertiesService.getScriptProperties().getProperty(NBA_DAILY_GAMES_STATUS_PROPERTY);
+  let last=null;try{last=raw?JSON.parse(raw):null;}catch(ignore){}
+  if(last&&last.completed_utc)last.completed_et=nbaGameTime_(last.completed_utc).full_label;
+  let triggerCount=null;
+  try{triggerCount=ScriptApp.getProjectTriggers().filter(t=>t.getHandlerFunction&&t.getHandlerFunction()==='nbaDailyGamesRefresh').length;}catch(ignore){}
+  return {schedule:'On demand (no daily trigger installed)',trigger_count:triggerCount,last_run:last};
+}
+function nbaDailyGamesRefresh() {
+  const lock=LockService.getScriptLock();if(!lock.tryLock(1000))return {status:'BUSY',credits:0};
+  const record={status:'RUNNING',started_utc:now_(),credits:0};
+  try {
+    const staged=nbaStageState_();
+    if(staged&&staged.state==='RUNNING'){record.status='BUSY';record.completed_utc=now_();record.message='An NBA export is running; the game list was not changed.';return record;}
+    PropertiesService.getScriptProperties().setProperty(NBA_DAILY_GAMES_STATUS_PROPERTY,JSON.stringify(record));
+    refreshIndexCore_();
+    record.status='SUCCEEDED';record.completed_utc=now_();record.game_count=mobileIndexTable_().length;
+  } catch(e) {record.status='FAILED';record.completed_utc=now_();record.message=safeError_(e);}
+  finally {PropertiesService.getScriptProperties().setProperty(NBA_DAILY_GAMES_STATUS_PROPERTY,JSON.stringify(record));lock.releaseLock();}
+  return record;
+}
+function nbaInstallDailyGamesRefresh() {
+  const existing=ScriptApp.getProjectTriggers().filter(t=>t.getHandlerFunction&&t.getHandlerFunction()==='nbaDailyGamesRefresh');
+  if(existing.length>1)fail_('Multiple daily NBA game-list triggers exist. Resolve them before setup.');
+  if(!existing.length)ScriptApp.newTrigger('nbaDailyGamesRefresh').timeBased().atHour(9).nearMinute(0).everyDays(1).inTimezone('America/New_York').create();
+  return nbaDailyGamesStatus_();
+}
+function mobileRefreshGamesFree() {return nbaDailyGamesRefresh();}
 function mobileLastExport_() {
   const raw=PropertiesService.getScriptProperties().getProperty(MOBILE_LAST_EXPORT_PROPERTY);
   if(!raw)return null;
@@ -322,11 +383,12 @@ function mobileExportEmailAttempt_(runId,exported) {
   if(existing) {
     try { return JSON.parse(existing); } catch(ignore) { return {enabled:true,status:'ATTEMPTED',message:'A completion email was already attempted for this export.'}; }
   }
-  const matchups=(exported.games||[]).map(game=>game.matchup).filter(Boolean),warnings=(exported.warnings||[]).filter(Boolean);
+  const matchups=(exported.games||[]).map(game=>game.matchup).filter(Boolean),warnings=(exported.warnings||[]).filter(Boolean),receipt=exported.receipt||{};
   const attempt={enabled:true,status:'ATTEMPTED',recipient:settings.recipient,attempted_utc:now_()};
   properties.setProperty(key,JSON.stringify(attempt)); // Persist before sending so completed-run replays never send twice.
   try {
-    MailApp.sendEmail({to:settings.recipient,subject:'NBA export ready · '+(matchups.length?matchups.join(' / '):'selected games'),body:'Your NBA Tools export is ready.\n\nCompleted: '+exported.exportTimestampUtc+'\nGames: '+(matchups.join(' / ')||'Unavailable')+'\nWarnings: '+(warnings.join(' | ')||'None')+'\n\nOpen NBA Tools: '+MOBILE_WEB_APP_URL});
+    const credits=receipt.total_charge_unconfirmed?'Confirmed '+Number(receipt.confirmed_credits||0)+'; total charge unconfirmed':String(Number(receipt.confirmed_credits||0))+' confirmed';
+    MailApp.sendEmail({to:settings.recipient,subject:'NBA export ready · '+matchups.length+' game'+(matchups.length===1?'':'s'),body:'Your NBA Game Prep export is ready.\n\nCompleted: '+exported.exportTimestampUtc+'\nGames: '+(matchups.join(' / ')||'Unavailable')+'\nOdds API credits: '+credits+'\nWarnings: '+(warnings.join(' | ')||'None')+'\n\nAudit export: '+exported.driveUrl+'\nAnalysis manifest: '+exported.analysisManifestDriveUrl+'\n\nOpen NBA Game Prep: '+MOBILE_WEB_APP_URL});
     attempt.status='SENT';attempt.sent_utc=now_();properties.setProperty(key,JSON.stringify(attempt));return attempt;
   } catch(e) {
     attempt.status='FAILED';attempt.message='Completion email could not be sent; export remains ready.';attempt.failed_utc=now_();properties.setProperty(key,JSON.stringify(attempt));return attempt;
@@ -341,6 +403,30 @@ function mobileRunStatus_() {
   if(!value||typeof value!=='object'||!['RUNNING','SUCCEEDED','FAILED','UNCONFIRMED'].includes(value.state))return null;
   const out={id:String(value.id||''),state:value.state,action:String(value.action||''),step:String(value.step||''),started_utc:String(value.started_utc||''),updated_utc:String(value.updated_utc||''),event_ids:Array.isArray(value.event_ids)?value.event_ids.map(String):[],matchups:Array.isArray(value.matchups)?value.matchups.map(String):[]};
   if(typeof value.message==='string')out.message=value.message;
+  const staged=out.action==='load_and_export'?nbaReconcileUnstartedRun_():null;
+  if(staged&&staged.run_id===out.id){
+    if(staged.state==='RUNNING'){
+      out.step=String(staged.stage||'working').toLowerCase();out.updated_utc=String(staged.updated_utc||out.updated_utc);
+      out.message=String(staged.message||'This load is continuing in the background.');
+      out.partial=staged.partial||null;
+      const leaseEnd=Date.parse(staged.lease_until_utc||'');
+      if(!Number.isFinite(leaseEnd)||leaseEnd<Date.now()) {
+        try {if(!nbaContinuationTriggers_().length)nbaArmContinuation_(60000);}
+        catch(e) {
+          out.message=safeError_(e);
+          if((staged.stage_attempts||0)===0&&staged.stage==='LOAD'&&(staged.cursor||0)===0) {
+            // No worker claimed this run, so no paid step could have started.
+            staged.state='FAILED';staged.message=out.message;nbaSaveStageState_(staged);
+            saveMobileExportRun_(staged.run_id,{state:'FAILED',signature:staged.signature,created_utc:staged.started_utc,updated_utc:now_(),message:out.message});
+            out.state='FAILED';out.step='failed';
+          } else {out.state='UNCONFIRMED';out.step='completion_unconfirmed';}
+        }
+      }
+      return out;
+    }
+    if(staged.state==='SUCCEEDED'||staged.state==='PARTIAL'){out.state='SUCCEEDED';out.step='export_ready';out.message='Export ready.';return out;}
+    if(staged.state==='FAILED'){out.state='FAILED';out.step='failed';out.message=String(staged.message||'The load stopped.');out.partial=staged.partial||null;return out;}
+  }
   if(out.state==='RUNNING') {
     const started=Date.parse(out.started_utc);
     if(Number.isFinite(started)&&Date.now()-started>MOBILE_RUN_UNCONFIRMED_MINUTES*60000) {
@@ -370,7 +456,13 @@ function mobileFinishRun_(run,state,message) {
   value.state=state;value.step=state==='SUCCEEDED'?'export_ready':'failed';value.updated_utc=now_();value.message=String(message||'');
   PropertiesService.getScriptProperties().setProperty(MOBILE_RUN_STATUS_PROPERTY,JSON.stringify(value));
 }
-function mobileOperationStatus() { return {operation:mobileRunStatus_(),last_export:mobileLastExport_()}; }
+function mobileOperationStatus(requestId) {
+  const current=mobileRunStatus_(),latest=mobileLastExport_();
+  if(requestId===undefined||requestId===null||requestId==='')return {operation:current,last_export:latest};
+  if(typeof requestId!=='string'||!/^[a-z0-9-]{8,80}$/i.test(requestId))fail_('Invalid run ID.');
+  const saved=mobileExportRun_(requestId),operation=current&&current.id===requestId?current:(saved?{id:requestId,action:'load_and_export',state:saved.state==='SUCCEEDED'?'SUCCEEDED':saved.state==='FAILED'?'FAILED':'UNCONFIRMED',step:saved.state==='SUCCEEDED'?'export_ready':'completion_unconfirmed',message:saved.message||'',started_utc:saved.created_utc||'',updated_utc:saved.updated_utc||'',event_ids:[],matchups:[],partial:saved.partial||null}:null);
+  return {requested_run_id:requestId,operation:operation,last_export:latest,requested_export:saved&&saved.state==='SUCCEEDED'?saved.export:null};
+}
 function mobileClearOperationStatus(expectedId) {
   const current=mobileRunStatus_();
   // A running request belongs to the server, not the browser tab. Never make
@@ -387,6 +479,9 @@ function mobileClearOperationStatus(expectedId) {
 // Mobile key-pool controls never return or log a credential. The owner-only
 // app may store a replacement key directly in Script Properties.
 function mobileKeyPoolView_() {
+  return nbaSharedKeyView_();
+}
+function nbaLegacyKeyPoolView_() {
   const slots=configuredKeySlots_(true),state=readKeyPoolState_(slots),available={};slots.forEach(slot=>available[slot.label]=true);
   return {active_slot:state.active,notifications:mobileEmailSettings_(),slots:Array.from({length:KEY_POOL_MAX_SLOTS},(_,index)=>{
     const label='KEY '+(index+1),configured=available[label]===true,record=state.slots[label]||{};
@@ -395,6 +490,9 @@ function mobileKeyPoolView_() {
 }
 function mobileKeyPoolStatus() { return mobileKeyPoolView_(); }
 function mobileSaveApiKey(label,value,replace) {
+  fail_('NBA uses the shared owner key pool. Manage keys in the owner dashboard; do not enter them again here.');
+}
+function nbaLegacySaveApiKey_(label,value,replace) {
   const match=/^KEY ([1-9][0-9]*)$/.exec(String(label||'').trim()),key=String(value||'').trim();
   if(!match||Number(match[1])>KEY_POOL_MAX_SLOTS)fail_('Choose a valid key slot.');
   if(key.length<12||key.length>256||/\s/.test(key))fail_('That key format is invalid. Nothing was saved.');
@@ -414,6 +512,10 @@ function mobileSaveApiKey(label,value,replace) {
 // Explicit free check: one request per distinct key, including exhausted slots.
 // Do not use request_ here: its free-request retries and rotation are unwanted.
 function mobileRefreshCreditBalances() {
+  nbaSharedCall_('check_balances',{},true);
+  return mobileKeyPoolView_();
+}
+function nbaLegacyRefreshCreditBalances_() {
   return run_('Credit balance refresh',()=>{
     const slots=configuredKeySlots_(),state=readKeyPoolState_(slots);
     slots.forEach(slot=>{
@@ -449,6 +551,9 @@ function mobileRefreshCreditBalances() {
 }
 
 function mobileSetActiveKey(label) {
+  fail_('The preferred key is shared with NFL. Change it in the owner dashboard.');
+}
+function nbaLegacySetActiveKey_(label) {
   const requested=String(label||'').trim();
   if(!/^KEY [1-9][0-9]*$/.test(requested))fail_('Choose a configured key slot.');
   return run_('Mobile key pool',()=>{
@@ -460,6 +565,9 @@ function mobileSetActiveKey(label) {
   });
 }
 function mobileResetKeyPool() {
+  fail_('Shared reservations cannot be reset from NBA. Use the owner dashboard.');
+}
+function nbaLegacyResetKeyPool_() {
   return run_('Mobile key pool reset',()=>{
     const properties=PropertiesService.getScriptProperties();properties.deleteProperty(KEY_POOL_STATE_PROPERTY);
     const slots=configuredKeySlots_(),state=readKeyPoolState_(slots);writeKeyPoolState_(state);
@@ -496,14 +604,35 @@ function altPropsUpdatedForEvent_(eventId) {
   const times=read_(TAB_ALT_PROPS,headers.length).filter(r=>String(r[event])===String(eventId)).map(r=>Date.parse(r[updated])).filter(Number.isFinite);
   return times.length?new Date(Math.max.apply(null,times)).toISOString():'';
 }
+function nbaQuoteTimeFresh_(value,now) {
+  const updated=Date.parse(exportValue_(value)),age=now-updated;
+  return Number.isFinite(updated)&&age>=0&&age<SLATE_FRESHNESS_MINUTES*60000;
+}
+function nbaStandardCacheFresh_(eventId,rows,now) {
+  const headers=propsHeaders_(),event=headers.indexOf('Event ID'),written=headers.indexOf('Updated'),sources=headers.indexOf('Market Source Times JSON');
+  const matches=rows.filter(row=>String(row[event])===String(eventId));
+  if(!matches.length)return false;
+  return matches.every(row=>{
+    if(!nbaQuoteTimeFresh_(row[written],now))return false;
+    let times;try{times=JSON.parse(String(row[sources]||''));}catch(ignore){return false;}
+    const keys=Object.keys(times||{}).filter(key=>PROP_MARKETS.includes(key));
+    return keys.length>0&&keys.every(key=>nbaQuoteTimeFresh_(times[key],now));
+  });
+}
+function nbaAlternateCacheFresh_(eventId,rows,now) {
+  const event=ALT_PROPS_HEADERS.indexOf('Event ID'),written=ALT_PROPS_HEADERS.indexOf('Updated'),source=ALT_PROPS_HEADERS.indexOf('Market Source UTC');
+  const matches=rows.filter(row=>String(row[event])===String(eventId));
+  return matches.length>0&&matches.every(row=>nbaQuoteTimeFresh_(row[written],now)&&nbaQuoteTimeFresh_(row[source],now));
+}
 function mobilePropsPlan_(forceRefresh,includeAlternateProps) {
   const now=Date.now(),games=requireGames_(),force=forceRefresh===true,includeAlternates=includeAlternateProps===true;
+  const standardRows=read_(TAB_PROPS,propsHeaders_().length),alternateRows=includeAlternates?read_(TAB_ALT_PROPS,ALT_PROPS_HEADERS.length):[];
   const reusable=[],toLoad=[],alternateReusable=[],alternateToLoad=[];
   games.forEach(g=>{
-    const age=Date.parse(g.propsUpdated),fresh=Number.isFinite(age)&&now-age>=0&&now-age<SLATE_FRESHNESS_MINUTES*60000;
+    const fresh=nbaStandardCacheFresh_(g.id,standardRows,now);
     (fresh&&!force?reusable:toLoad).push({event_id:g.id,matchup:g.matchup,kickoff_utc:mobileDateValue_(g.kickoff),props_updated_utc:mobileDateValue_(g.propsUpdated),reason:fresh&&!force?'Props are under '+SLATE_FRESHNESS_MINUTES+' minutes old.':force?'Force refresh selected.':'Props are missing or older than '+SLATE_FRESHNESS_MINUTES+' minutes.'});
     if(includeAlternates) {
-      const alternateUpdated=altPropsUpdatedForEvent_(g.id),alternateAge=Date.parse(alternateUpdated),alternateFresh=Number.isFinite(alternateAge)&&now-alternateAge>=0&&now-alternateAge<SLATE_FRESHNESS_MINUTES*60000;
+      const alternateUpdated=altPropsUpdatedForEvent_(g.id),alternateFresh=nbaAlternateCacheFresh_(g.id,alternateRows,now);
       (alternateFresh&&!force?alternateReusable:alternateToLoad).push({event_id:g.id,matchup:g.matchup,alternate_props_updated_utc:alternateUpdated,reason:alternateFresh&&!force?'Alternate props are under '+SLATE_FRESHNESS_MINUTES+' minutes old.':force?'Force refresh selected.':'Alternate props are missing or older than '+SLATE_FRESHNESS_MINUTES+' minutes.'});
     }
   });
@@ -554,6 +683,8 @@ function loadPropsForGames_(games,onProgress,preparedRoster) {
 function mobileRefreshScheduleAndOdds(approvedCredits,requestId) {
   if(Number(approvedCredits)!==3)fail_('Refresh Schedule and Odds requires explicit approval of exactly 3 credits.');
   return run_('Mobile schedule and odds',()=>{
+    const staged=nbaStageState_();
+    if(staged&&staged.state==='RUNNING')fail_('An NBA export is running. Wait for it before refreshing game odds. No credits were spent.');
     const run=mobileBeginRun_('schedule_and_odds',[],requestId);
     try {
       mobileUpdateRun_(run,'refreshing_schedule','Refreshing the NBA schedule.');
@@ -561,7 +692,7 @@ function mobileRefreshScheduleAndOdds(approvedCredits,requestId) {
       const rows=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length);if(!rows.length)fail_('INDEX has no games after refresh.');
       mobileUpdateRun_(run,'loading_game_odds','Loading game lines.');
       log_('Mobile schedule and odds','','PLANNED','Expected 3 credits for h2h, spreads, totals; no automatic paid retry.',3);
-      const data=odds_('/sports/'+SPORT+'/odds','bookmakers='+BOOK+'&markets=h2h,spreads,totals&oddsFormat=american',true,'',3);
+      const data=odds_('/sports/'+SPORT+'/odds','bookmakers='+BOOK+'&markets=h2h,spreads,totals&oddsFormat=american',true,'',3,run.id,'game-lines');
       if(!Array.isArray(data))fail_('Invalid game lines response.');
       rows.forEach(r=>{try{
         const matches=data.filter(g=>g.id===r[0]);if(matches.length!==1)fail_('Event missing/duplicated in game lines.');const g=matches[0];
@@ -609,6 +740,11 @@ function mobileSaveAndNotifyExport_(exported,runId) {
   let latest=saveMobileLastExport_(exported); // The receipt is durable before an email attempt.
   const notification=mobileExportEmailAttempt_(runId,exported);
   exported.receipt.notification=notification;
+  if(['FAILED','UNAVAILABLE'].includes(notification.status)) {
+    const warning=notification.message||'Completion email was not delivered; the export is ready in the app.';
+    if(exported.warnings.indexOf(warning)<0)exported.warnings.push(warning);
+    exported.receipt.warnings=exported.warnings.slice();
+  }
   latest=saveMobileLastExport_(exported);
   return latest;
 }
@@ -619,47 +755,259 @@ function pruneMobileExportRuns_() {
     catch(ignore) {} // Keep unreadable records fail-closed rather than forgetting a paid request.
   });
 }
+function nbaStageState_() {
+  const raw=PropertiesService.getScriptProperties().getProperty(NBA_STAGE_STATE_PROPERTY);
+  if(!raw)return null;try{return JSON.parse(raw);}catch(ignore){return null;}
+}
+function nbaSaveStageState_(state) {
+  state.updated_utc=now_();PropertiesService.getScriptProperties().setProperty(NBA_STAGE_STATE_PROPERTY,JSON.stringify(state));
+}
+function nbaContinuationTriggers_() {
+  try {return ScriptApp.getProjectTriggers().filter(t=>t.getHandlerFunction&&t.getHandlerFunction()==='continueNbaMobileLoad');}
+  catch(e) {fail_('NBA background trigger access failed. Check this run before trying again; Google may require authorization in the NBA Apps Script editor.');}
+}
+function nbaClearContinuation_() {nbaContinuationTriggers_().forEach(t=>ScriptApp.deleteTrigger(t));}
+function nbaArmContinuation_(delayMs) {
+  nbaClearContinuation_();
+  try {ScriptApp.newTrigger('continueNbaMobileLoad').timeBased().after(delayMs).create();}
+  catch(e) {fail_('NBA background trigger could not start. Check this run before trying again; Google may require authorization in the NBA Apps Script editor.');}
+}
+function authorizeNbaBackgroundLoading() {
+  // Keep this outside a catch: granular consent must be allowed to open.
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL,['https://www.googleapis.com/auth/script.scriptapp']);
+  const triggers=ScriptApp.getProjectTriggers(),stage=nbaReconcileUnstartedRun_();
+  const result={status:'READY',continuation_triggers:triggers.filter(t=>t.getHandlerFunction()==='continueNbaMobileLoad').length,
+    previous_run:stage?{run_id:stage.run_id,state:stage.state}:null};
+  console.log(JSON.stringify(result));return result;
+}
+function nbaReconcileUnstartedRun_() {
+  const lock=LockService.getScriptLock(),held=typeof lock.hasLock==='function'&&lock.hasLock();
+  if(!held&&!lock.tryLock(1000))return nbaStageState_();
+  try {
+    const stage=nbaStageState_();
+    if(!stage||stage.state!=='RUNNING'||stage.stage!=='LOAD'||(stage.cursor||0)!==0||(stage.stage_attempts||0)!==0)return stage;
+    const saved=mobileExportRun_(stage.run_id);
+    if(!saved||saved.state!=='FAILED')return stage;
+    // The startup request already failed, and no worker ever claimed its job.
+    stage.state='FAILED';stage.message=String(saved.message||'The background load did not start. Review the games and cost again.');
+    stage.lease_until_utc='';stage.reconciled_utc=now_();nbaSaveStageState_(stage);return stage;
+  } finally {if(!held)lock.releaseLock();}
+}
+function verifyNbaBackgroundLoading() {
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL,['https://www.googleapis.com/auth/script.scriptapp']);
+  const lock=LockService.getScriptLock();if(!lock.tryLock(1000))fail_('Another NBA setup operation is running.');
+  try {
+    const properties=PropertiesService.getScriptProperties(),key='NBA_BACKGROUND_TRIGGER_CHECK';
+    const existing=ScriptApp.getProjectTriggers().filter(t=>t.getHandlerFunction()==='nbaBackgroundTriggerProbe');
+    existing.forEach(t=>ScriptApp.deleteTrigger(t));
+    const check={status:'PENDING',started_utc:now_(),provider_calls:0};
+    const trigger=ScriptApp.newTrigger('nbaBackgroundTriggerProbe').timeBased().after(60000).create();
+    check.trigger_id=String(trigger.getUniqueId());properties.setProperty(key,JSON.stringify(check));
+    console.log('Zero-credit NBA background check scheduled.');return {status:check.status,started_utc:check.started_utc};
+  } finally {lock.releaseLock();}
+}
+function nbaBackgroundTriggerProbe(event) {
+  const properties=PropertiesService.getScriptProperties(),raw=properties.getProperty('NBA_BACKGROUND_TRIGGER_CHECK');
+  if(!raw)return;const check=JSON.parse(raw);
+  if(!event||String(event.triggerUid)!==check.trigger_id||check.status!=='PENDING')return;
+  check.status='SUCCEEDED';check.completed_utc=now_();properties.setProperty('NBA_BACKGROUND_TRIGGER_CHECK',JSON.stringify(check));
+  ScriptApp.getProjectTriggers().filter(t=>String(t.getUniqueId())===check.trigger_id).forEach(t=>ScriptApp.deleteTrigger(t));
+}
+function nbaBackgroundTriggerCheckStatus() {
+  const raw=PropertiesService.getScriptProperties().getProperty('NBA_BACKGROUND_TRIGGER_CHECK');
+  const check=raw?JSON.parse(raw):{status:'NOT_RUN',provider_calls:0};
+  const result={status:check.status,started_utc:check.started_utc||null,completed_utc:check.completed_utc||null,provider_calls:0};
+  console.log(JSON.stringify(result));return result;
+}
+function nbaRunFile_(runId,kind,value) {
+  const name='nba_run_'+runId+'_'+kind+'.json',folder=analysisExportFolder_(),files=folder.getFilesByName(name),matches=[];
+  while(files.hasNext())matches.push(files.next());
+  if(matches.length>1)fail_('Duplicate saved NBA run files require owner review.');
+  if(value===undefined){if(!matches.length)return null;try{return JSON.parse(matches[0].getBlob().getDataAsString());}catch(ignore){fail_('Saved NBA run file cannot be read.');}}
+  if(matches.length)matches[0].setContent(JSON.stringify(value));else folder.createFile(name,JSON.stringify(value),MimeType.PLAIN_TEXT);
+  return value;
+}
+function nbaOperationKey_(runId,kind,eventId) {return NBA_STAGE_OPERATION_PREFIX+runId+'_'+kind+'_'+eventId;}
+function nbaOperation_(runId,kind,eventId,value) {
+  const properties=PropertiesService.getScriptProperties(),key=nbaOperationKey_(runId,kind,eventId);
+  if(value!==undefined){properties.setProperty(key,JSON.stringify(value));return value;}
+  const raw=properties.getProperty(key);if(!raw)return null;try{return JSON.parse(raw);}catch(ignore){fail_('Saved paid-request receipt cannot be read; no retry was made.');}
+}
+function nbaLoadSteps_(job) {
+  const steps=[];job.items.forEach(item=>{if(item.standard_credits)steps.push({event_id:item.event_id,kind:'standard',credits:item.standard_credits});if(item.alternate_credits)steps.push({event_id:item.event_id,kind:'alternate',credits:item.alternate_credits});});return steps;
+}
+function nbaRunCharges_(state,job) {
+  return nbaLoadSteps_(job).map(step=>nbaOperation_(state.run_id,step.kind,step.event_id)).filter(op=>op&&op.response_saved===true).map(op=>({event_id:op.event_id,key_slot:op.key_slot||'',actual_credits:Number.isFinite(op.actual_credits)?op.actual_credits:null}));
+}
+function nbaPaidStep_(state,job,step,game) {
+  const kind=step.kind,eventId=step.event_id,rawKind='raw_'+kind+'_'+eventId;
+  let op=nbaOperation_(state.run_id,kind,eventId),saved=nbaRunFile_(state.run_id,rawKind);
+  if(op&&op.status==='COMMITTED')return 'SUCCESS';
+  if(!saved&&op){
+    op.status='UNKNOWN';op.message='The paid request was interrupted before its response could be confirmed. It was not retried.';
+    nbaOperation_(state.run_id,kind,eventId,op);job.warnings.push(game.matchup+': '+op.message);return 'UNKNOWN';
+  }
+  if(!saved){
+    op={status:'INTENT',event_id:eventId,kind:kind,expected_credits:step.credits,started_utc:now_()};
+    nbaOperation_(state.run_id,kind,eventId,op);
+    const markets=kind==='standard'?PROP_MARKETS:MOBILE_ALTERNATE_MARKETS;
+    log_('NBA staged '+kind,eventId,'PLANNED','Expected '+step.credits+' credits; no automatic retry.',step.credits);
+    try {
+      const response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(eventId)+'/odds','bookmakers='+BOOK+'&markets='+markets.join(',')+'&oddsFormat=american',true,eventId,step.credits,state.run_id,kind+'-'+eventId);
+      saved={text:response.text,key_slot:response.slot?response.slot.label:'',actual_credits:numberHeader_(response.headers,'x-requests-last'),retrieved_utc:now_()};
+      nbaRunFile_(state.run_id,rawKind,saved); // Raw response precedes parsing or Sheet writes.
+      op.status='RESPONSE_SAVED';op.response_saved=true;op.key_slot=saved.key_slot;op.actual_credits=saved.actual_credits;op.response_saved_utc=saved.retrieved_utc;
+      nbaOperation_(state.run_id,kind,eventId,op);
+    } catch(e) {
+      op.status='UNKNOWN';op.message='Paid request outcome is unconfirmed; no automatic retry.';nbaOperation_(state.run_id,kind,eventId,op);
+      job.warnings.push(game.matchup+': '+op.message+' '+safeError_(e));if(e&&e.stopPaidBatch)job.stop_paid=true;return 'UNKNOWN';
+    }
+  }
+  if(!op.response_saved){op.response_saved=true;op.status='RESPONSE_SAVED';op.key_slot=saved.key_slot;op.actual_credits=saved.actual_credits;nbaOperation_(state.run_id,kind,eventId,op);}
+  try {
+    const payload=json_({text:saved.text},'Saved NBA odds'),time=now_();
+    if(String(payload.id||'')!==String(eventId))fail_('Saved provider event does not match the selected game.');
+    if(kind==='standard'){
+      const rows=propsRows_(game,payload,[],time);
+      write_(TAB_PROPS,propsHeaders_(),mergeProps_(read_(TAB_PROPS,propsHeaders_().length),rows,game));
+      try{writeLatestNormalizedProps_(normalizeOddsApiEvent_(payload,BOOK),eventId,'mobile_odds_api_refresh');}catch(e){job.warnings.push(game.matchup+': normalized provider mirror was not updated.');}
+      recordOddsApiLineHistorySafely_(payload,'mobile_props_refresh',eventId);
+      const index=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length),at=index.findIndex(r=>String(r[IDX.EVENT])===String(eventId));
+      if(at>=0)sheet_(TAB_INDEX).getRange(at+2,IDX.PROPS_UPDATED+1).setValue(time);
+    } else {
+      const rows=alternatePropsRows_(game,payload,[],time);
+      write_(TAB_ALT_PROPS,ALT_PROPS_HEADERS,mergeAlternateProps_(read_(TAB_ALT_PROPS,ALT_PROPS_HEADERS.length),rows,game));
+      recordOddsApiLineHistorySafely_(payload,'mobile_alternate_props_refresh',eventId);
+    }
+    op.status='COMMITTED';op.committed_utc=now_();nbaOperation_(state.run_id,kind,eventId,op);return 'SUCCESS';
+  } catch(e) {
+    op.status='FAILED';op.message=safeError_(e);nbaOperation_(state.run_id,kind,eventId,op);
+    job.warnings.push(game.matchup+': saved '+kind+' response could not be committed. '+op.message);return 'FAILED';
+  }
+}
+function nbaEnsureSnapshot_(name,payload) {
+  const folder=analysisExportFolder_(),files=folder.getFilesByName(name),matches=[];while(files.hasNext())matches.push(files.next());
+  if(matches.length>1)fail_('Duplicate immutable NBA snapshots require owner review.');
+  return matches.length?matches[0]:folder.createFile(name,JSON.stringify(payload,null,2),MimeType.PLAIN_TEXT);
+}
+function nbaStageAdvance_(state,job) {
+  if(state.stage==='LOAD'){
+    const steps=nbaLoadSteps_(job);
+    if(state.cursor>=steps.length){state.stage='EXPORT_PREPARE';state.cursor=0;return;}
+    const step=steps[state.cursor],game=job.games.find(g=>g.id===step.event_id);
+    state.message=(step.kind==='alternate'?'Loading alternate props':'Loading standard props')+' for '+game.matchup+' ('+(state.cursor+1)+' of '+steps.length+').';
+    if(Date.parse(game.kickoff)<=Date.now()){job.warnings.push(game.matchup+': tipoff passed before loading; paid request skipped.');state.cursor++;return;}
+    if(job.stop_paid){job.warnings.push(game.matchup+': remaining paid requests skipped after a quota or key failure.');state.cursor++;return;}
+    const result=nbaPaidStep_(state,job,step,game);
+    job.load_status[game.id][step.kind]=result;state.cursor++;
+    state.partial={standard_loaded_events:Object.values(job.load_status).filter(item=>item.standard==='SUCCESS').length,alternate_loaded_events:Object.values(job.load_status).filter(item=>item.alternate==='SUCCESS').length};
+    return;
+  }
+  if(state.stage==='EXPORT_PREPARE'){
+    let payload=nbaRunFile_(state.run_id,'payload');
+    if(!payload){
+      const timestamp=now_(),usage={odds_api:{max_credits:state.cap,alternate_requested:state.include_alternates,status:job.warnings.length?'PARTIAL':'SUCCESS'},sports_game_odds:{status:'DISABLED_PENDING_COVERAGE_TEST'}};
+      payload=buildAnalysisExport_(job.games,timestamp,usage);payload.app_build=MOBILE_APP_BUILD;payload.snapshot_id=analysisSnapshotId_(timestamp,state.run_id);payload.run_load_status=job.load_status;
+      nbaRunFile_(state.run_id,'payload',payload);
+    }
+    job.timestamp=payload.export_timestamp_utc;state.stage='EXPORT_AUDIT';return;
+  }
+  const payload=nbaRunFile_(state.run_id,'payload');if(!payload)fail_('Saved NBA export payload is missing.');
+  if(state.stage==='EXPORT_AUDIT'){
+    job.audit_filename=analysisExportFilename_(job.timestamp,payload.event_ids,payload.snapshot_id);
+    const file=nbaEnsureSnapshot_(job.audit_filename,payload);job.audit_url=file.getUrl();job.audit_id=file.getId();state.stage='EXPORT_GAME';state.cursor=0;state.message='Saving per-game analysis files.';return;
+  }
+  if(state.stage==='EXPORT_GAME'){
+    if(state.cursor>=payload.games.length){state.stage='EXPORT_MANIFEST';return;}
+    const game=payload.games[state.cursor],filename=compactAnalysisGameFilename_(job.timestamp,game.event_id,payload.snapshot_id),compact=compactEventAnalysisPayload_(payload,game,job.timestamp,{filename:job.audit_filename,drive_url:job.audit_url}),file=nbaEnsureSnapshot_(filename,compact);
+    job.files[state.cursor]={event_id:game.event_id,matchup:game.matchup,kickoff_utc:game.kickoff_utc,analysis_eligible:compact.analysis_eligible,ineligible_reason:compact.ineligible_reason,filename:filename,drive_url:file.getUrl()};state.cursor++;return;
+  }
+  if(state.stage==='EXPORT_MANIFEST'){
+    const manifest={schema_version:1,kind:'nba_slate_analysis_manifest',sport:SPORT,league:'NBA',app_build:MOBILE_APP_BUILD,snapshot_id:payload.snapshot_id,export_timestamp_utc:job.timestamp,
+      audit_export:{filename:job.audit_filename,drive_url:job.audit_url},event_ids:payload.event_ids,eligible_event_ids:job.files.filter(g=>g.analysis_eligible).map(g=>g.event_id),ineligible_events:job.files.filter(g=>!g.analysis_eligible).map(g=>({event_id:g.event_id,reason:g.ineligible_reason})),events:job.files,
+      provider_usage:payload.provider_usage,provider_scope:'SportsGameOdds NBA coverage is disabled pending an approved coverage test.'};
+    const filename=analysisManifestFilename_(job.timestamp,payload.event_ids,payload.snapshot_id),file=nbaEnsureSnapshot_(filename,manifest);
+    job.export={filename:job.audit_filename,fileId:job.audit_id,driveUrl:job.audit_url,eventIds:payload.event_ids,exportTimestampUtc:job.timestamp,providerCoverageSummary:payload.provider_coverage_summary,warnings:job.warnings.concat(payload.data_quality.warnings),appBuild:MOBILE_APP_BUILD,snapshotId:payload.snapshot_id,
+      analysisManifestFilename:filename,analysisManifestDriveUrl:file.getUrl(),analysisGameFiles:job.files,eligibleEventIds:manifest.eligible_event_ids,ineligibleEventIds:manifest.ineligible_events.map(g=>g.event_id),games:payload.games.map(g=>({event_id:g.event_id,matchup:g.matchup,kickoff_et:g.kickoff_et,kickoff_utc:g.kickoff_utc,analysis_eligible:manifest.eligible_event_ids.indexOf(g.event_id)>=0}))};
+    job.export.receipt=mobileExportReceipt_(job.export,{charges:nbaRunCharges_(state,job)},{charges:[]},{usage:{status:'DISABLED_PENDING_COVERAGE_TEST'}},job.export.warnings);
+    const uncertain=nbaLoadSteps_(job).some(step=>{const op=nbaOperation_(state.run_id,step.kind,step.event_id);return op&&op.status==='UNKNOWN';});
+    if(uncertain){job.export.receipt.total_charge_unconfirmed=true;job.export.warnings.push('At least one paid request has an unconfirmed outcome; no retry was made.');}
+    state.stage='PUBLISH';return;
+  }
+  if(state.stage==='PUBLISH'){
+    saveMobileLastExport_(job.export);saveMobileExportRun_(state.run_id,{state:'SUCCEEDED',signature:state.signature,created_utc:state.started_utc,updated_utc:now_(),export:compactMobileExport_(job.export),warnings:job.export.warnings});
+    state.stage='EMAIL';state.message='Export ready; recording the completion receipt.';return;
+  }
+  if(state.stage==='EMAIL'){
+    mobileSaveAndNotifyExport_(job.export,state.run_id);
+    saveMobileExportRun_(state.run_id,{state:'SUCCEEDED',signature:state.signature,created_utc:state.started_utc,updated_utc:now_(),export:compactMobileExport_(job.export),warnings:job.export.warnings});
+    state.state=job.export.warnings.length?'PARTIAL':'SUCCEEDED';state.stage='DONE';state.completed_utc=now_();
+    mobileFinishRun_({id:state.run_id},'SUCCEEDED','NBA export ready.');return;
+  }
+  fail_('Unknown NBA checkpoint stage.');
+}
+function continueNbaMobileLoad() {
+  const claim=LockService.getScriptLock();if(!claim.tryLock(1000))return {status:'BUSY'};
+  let state;
+  try {
+    state=nbaStageState_();if(!state||state.state!=='RUNNING')return {status:'NO_ACTIVE_RUN'};
+    if(Date.parse(state.lease_until_utc||'')>Date.now())return {status:'LEASED'};
+    state.stage_attempts=(state.stage_attempts||0)+1;
+    if(state.stage_attempts>3){state.state='FAILED';state.message='A checkpoint could not be recovered. Uncertain paid requests were not repeated.';nbaSaveStageState_(state);nbaClearContinuation_();saveMobileExportRun_(state.run_id,{state:'FAILED',signature:state.signature,created_utc:state.started_utc,updated_utc:now_(),message:state.message,partial:state.partial});mobileFinishRun_({id:state.run_id},'FAILED',state.message);return state;}
+    state.lease_until_utc=new Date(Date.now()+7*60000).toISOString();nbaSaveStageState_(state);nbaArmContinuation_(8*60000);
+  } finally {claim.releaseLock();}
+  const started=Date.now();
+  try {
+    const job=nbaRunFile_(state.run_id,'job');if(!job)fail_('Saved NBA run plan is missing.');
+    let workLock;try{workLock=LockService.getDocumentLock();}catch(ignore){}if(!workLock)workLock=LockService.getScriptLock();
+    if(!workLock.tryLock(1000)){state.lease_until_utc='';nbaSaveStageState_(state);nbaArmContinuation_(60000);return {status:'OTHER_LOADER_RUNNING'};}
+    try {
+      let steps=0;
+      while(state.state==='RUNNING'&&Date.now()-started<4*60000&&steps++<30){
+        mobileUpdateRun_({id:state.run_id},state.stage.toLowerCase(),state.message||'Continuing NBA load.');
+        nbaStageAdvance_(state,job);nbaRunFile_(state.run_id,'job',job);state.stage_attempts=0;nbaSaveStageState_(state);
+      }
+    } finally {workLock.releaseLock();}
+  } catch(e) {
+    state.state='FAILED';state.message=safeError_(e);saveMobileExportRun_(state.run_id,{state:'FAILED',signature:state.signature,created_utc:state.started_utc,updated_utc:now_(),message:state.message,partial:state.partial});mobileFinishRun_({id:state.run_id},'FAILED',state.message);
+  }
+  state.lease_until_utc='';nbaSaveStageState_(state);
+  if(state.state==='RUNNING')nbaArmContinuation_(60000);else nbaClearContinuation_();
+  return {status:state.state,stage:state.stage,run_id:state.run_id};
+}
 function mobileLoadAndExport(plan,requestId) {
   const id=mobileExportRunId_(requestId),signature=mobileExportRunSignature_(plan);
-  return run_('Mobile load and export',()=>{
+  return run_('Mobile staged load',()=>{
     const prior=mobileExportRun_(id);
     if(prior) {
       if(prior.signature!==signature)fail_('This request ID was already used for a different cost plan. Review the cost again.');
-      if(prior.state!=='SUCCEEDED')fail_('This request already started and cannot automatically retry paid calls. Review the latest export and make a new cost review.');
-      let lastExport=mobileLastExport_();
-      if(!lastExport||Date.parse(lastExport.export_timestamp_utc)<Date.parse(prior.export.exportTimestampUtc))lastExport=saveMobileLastExport_(prior.export);
-      return {plan:plan,export:prior.export,last_export:lastExport,credit_result:prior.credit_result,
-        provider_result:{usage:prior.provider_usage},warnings:prior.warnings||[],reused_completed_run:true};
+      return {operation:mobileOperationStatus(id).operation,queued:prior.state==='STARTED',reused_request_id:true};
     }
-    const current=mobileAssertPlan_(plan),active=mobileRunStatus_();
+    const current=mobileAssertPlan_(plan),active=mobileRunStatus_(),staged=nbaStageState_();
     if(active&&active.state==='RUNNING')fail_('Another export is still running. Wait for its result before starting a new request.');
+    if(staged&&staged.state==='RUNNING')fail_('A previous NBA load needs status reconciliation before another paid request.');
+    // Fail before writing a queued run when trigger management is unavailable.
+    nbaContinuationTriggers_();
     const allGames=requireGames_();
     if(JSON.stringify(allGames.map(g=>g.id))!==current.selection_signature)fail_('Game selection changed. Refresh the preview before confirming.');
     const created=now_();saveMobileExportRun_(id,{state:'STARTED',signature:signature,created_utc:created});
     const run=mobileBeginRun_('load_and_export',allGames,id);
     try {
-      const refreshIds=new Set(current.games_requiring_refresh.map(item=>item.event_id)),alternateRefreshIds=new Set((current.alternate_games_requiring_refresh||[]).map(item=>item.event_id)),toLoad=allGames.filter(g=>refreshIds.has(g.id)),alternateToLoad=allGames.filter(g=>alternateRefreshIds.has(g.id));
-      const refreshGames=allGames.filter(g=>refreshIds.has(g.id)||alternateRefreshIds.has(g.id));
-      const result=toLoad.length?loadPropsForGames_(toLoad,g=>mobileUpdateRun_(run,'loading_props','Loading props for '+g.matchup+'.')):{successes:0,total:0,warnings:[],stopped_message:'',charges:[]};
-      const alternateResult=alternateToLoad.length?loadAlternatePropsForGames_(alternateToLoad,g=>mobileUpdateRun_(run,'loading_alternates','Loading alternate props for '+g.matchup+'.')):{successes:0,total:0,warnings:[],stopped_message:'',charges:[]};
-      let providerResult;
-      mobileUpdateRun_(run,'loading_provider','Recording SportsGameOdds coverage status.');
-      try { providerResult=loadSportsGameOddsForMobile_(allGames,current.sports_game_odds); }
-      catch(providerError) { providerResult={successes:0,warnings:['SportsGameOdds: '+safeError_(providerError)],failed:true,usage:{scope:'NBA coverage test not yet approved',status:'FAILED',no_automatic_retries:true}}; }
-      mobileUpdateRun_(run,'creating_export','Creating your analysis export.');
-      const exported=exportSelectedGamesCore_(allGames,{odds_api:{max_standard_prop_credits:current.max_prop_credits,max_alternate_prop_credits:current.max_alternate_prop_credits,max_credits:current.max_total_odds_api_credits,loaded_events:result.successes,loaded_alternate_events:alternateResult.successes},sports_game_odds:providerResult.usage},id);
-      const slots=configuredKeySlots_(),pool=readKeyPoolState_(slots),active=pool.slots[pool.active]||{};
-      const creditResult={active_slot:pool.active,remaining:poolDisplayValue_(active.remaining),used:poolDisplayValue_(active.used),last_cost:poolDisplayValue_(active.last)},warnings=(result.warnings||[]).concat(alternateResult.warnings||[]).concat(providerResult.warnings||[]).concat(exported.warnings||[]);
-      exported.warnings=warnings;
-      exported.receipt=mobileExportReceipt_(exported,result,alternateResult,providerResult,warnings);
-      if(exported.receipt.total_charge_unconfirmed) { warnings.push('Some paid request charges were not confirmed by quota headers.');exported.receipt.warnings=warnings.slice(); }
-      saveMobileExportRun_(id,{state:'SUCCEEDED',signature:signature,created_utc:created,export:compactMobileExport_(exported),credit_result:creditResult,provider_usage:providerResult.usage,warnings:warnings});
-      const lastExport=mobileSaveAndNotifyExport_(exported,id);
-      const response={plan:current,load_result:result,alternate_load_result:alternateResult,provider_result:providerResult,export:exported,last_export:lastExport,credit_result:creditResult,warnings:warnings};
-      mobileFinishRun_(run,'SUCCEEDED','Export ready.');
-      pruneMobileExportRuns_();
-      return response;
-    } catch(e) { const saved=mobileExportRun_(id);if(!saved||saved.state!=='SUCCEEDED')saveMobileExportRun_(id,{state:'FAILED',signature:signature,created_utc:created});mobileFinishRun_(run,'FAILED',safeError_(e));throw e; }
+      const standardIds=new Set(current.games_requiring_refresh.map(item=>item.event_id)),alternateIds=new Set((current.alternate_games_requiring_refresh||[]).map(item=>item.event_id));
+      const items=allGames.map(g=>({event_id:g.id,standard_credits:standardIds.has(g.id)?PROP_MARKETS.length:0,alternate_credits:alternateIds.has(g.id)?MOBILE_ALTERNATE_MARKETS.length:0}));
+      const status={};allGames.forEach(g=>status[g.id]={});
+      const job={games:allGames,items:items,load_status:status,warnings:[],files:[],stop_paid:false};
+      nbaRunFile_(id,'job',job);
+      const state={schema_version:1,run_id:id,state:'RUNNING',stage:'LOAD',cursor:0,started_utc:created,updated_utc:created,lease_until_utc:'',stage_attempts:0,signature:signature,cap:current.max_total_odds_api_credits,include_alternates:current.include_alternate_props===true,message:'Queued NBA load.'};
+      nbaSaveStageState_(state);nbaArmContinuation_(1000);
+      return {operation:run,queued:true};
+    } catch(e) {
+      const message=safeError_(e),stage=nbaStageState_();
+      if(stage&&stage.run_id===id&&stage.state==='RUNNING') {stage.state='FAILED';stage.message=message;stage.lease_until_utc='';nbaSaveStageState_(stage);}
+      saveMobileExportRun_(id,{state:'FAILED',signature:signature,created_utc:created,updated_utc:now_(),message:message});
+      mobileFinishRun_(run,'FAILED',message);
+      throw e;
+    }
   });
 }
 function safeError_(e) {
@@ -736,21 +1084,26 @@ function safeOddsFailure_(label,code,slot,result) {
   return label+': HTTP '+code+' on '+slot.label+'. This was not confirmed as a quota or credential failure, so the key pool was not rotated.';
 }
 function request_(url,label,paid,event,isOdds,slot,expectedCost) {
-  for(let attempt=0;attempt<(paid?1:3);attempt++) {
+  const shared=!!(slot&&slot.shared_pool),reservation=slot&&slot.shared_reservation;
+  if(reservation)nbaSharedCall_('sent',{reservation_id:reservation});
+  for(let attempt=0;attempt<(paid||shared?1:3);attempt++) {
     let res;
     try { res=UrlFetchApp.fetch(url,{muteHttpExceptions:true,followRedirects:true,headers:{'User-Agent':'NBA-Game-Prep/1.0','Accept':'application/vnd.github+json'}}); }
     catch(e) {
-      if(!paid && attempt<2) { Utilities.sleep(500*Math.pow(2,attempt)); continue; }
+      if(reservation)nbaSharedCall_('unknown',{reservation_id:reservation});
+      if(!paid&&!shared&&attempt<2) { Utilities.sleep(500*Math.pow(2,attempt)); continue; }
       if(isOdds) log_(label,event,'TRANSPORT ERROR',(slot?slot.label+'; ':'')+'charge unknown; key pool unchanged; no automatic paid retry.');
       fail_(label+': transport failure.');
     }
     const code=res.getResponseCode(), h=res.getAllHeaders()||{};let body;
-    try{body=res.getContentText();}catch(ignore){fail_(label+': unreadable response.');}
-    const poolResult=isOdds&&slot?updateKeyPoolFromResponse_(slot,code,h,body,expectedCost||0,paid):null;
+    try{body=res.getContentText();}catch(ignore){if(reservation)nbaSharedCall_('unknown',{reservation_id:reservation});fail_(label+': unreadable response.');}
+    if(reservation)nbaSharedCall_('response',{reservation_id:reservation,http_code:code,headers:{'x-requests-last':header_(h,'x-requests-last'),'x-requests-used':header_(h,'x-requests-used'),'x-requests-remaining':header_(h,'x-requests-remaining')}});
+    const errorCode=code===200?'':apiErrorCode_(body);
+    const poolResult=shared?{kind:code===429?'RATE_LIMIT':['INVALID_KEY','DEACTIVATED_KEY','MISSING_KEY'].includes(errorCode)?'AUTH':errorCode==='OUT_OF_USAGE_CREDITS'?'QUOTA':code===200?'SUCCESS':'OTHER',next:'',record:{errorCode:errorCode}}:isOdds&&slot?updateKeyPoolFromResponse_(slot,code,h,body,expectedCost||0,paid):null;
     if(isOdds) log_(label,event,'HTTP '+code,slot?slot.label:'',header_(h,'x-requests-last'),header_(h,'x-requests-used'),header_(h,'x-requests-remaining'));
     if(code===200) return {text:body,headers:h,slot:slot||null};
     // Free public requests only: bounded retry of 429/5xx. Never repeat 401/403.
-    if(!paid && (code===429||code>=500) && attempt<2) { Utilities.sleep(2000*Math.pow(2,attempt)); continue; }
+    if(!paid&&!shared&&(code===429||code>=500)&&attempt<2) { Utilities.sleep(2000*Math.pow(2,attempt)); continue; }
     if(isOdds&&slot) {
       const message=safeOddsFailure_(label,code,slot,poolResult);
       if(paid&&['AUTH','QUOTA'].includes(poolResult.kind))failPaidBatch_(message);
@@ -760,13 +1113,16 @@ function request_(url,label,paid,event,isOdds,slot,expectedCost) {
   }
 }
 function json_(r,label) { try{return JSON.parse(r.text);}catch(e){fail_(label+': invalid JSON.');} }
-function oddsRequest_(path,params,paid,event,expectedCost) {
+function oddsRequest_(path,params,paid,event,expectedCost,runId,operation) {
   if(paid&&(!Number.isFinite(expectedCost)||expectedCost<=0))fail_('Paid Odds API requests require an explicit expected cost.');
-  const selected=chooseKeySlot_(expectedCost||0),url=API_BASE+path+'?'+(params?params+'&':'')+'apiKey='+encodeURIComponent(selected.slot.key);
-  return request_(url,paid?'Odds':'Odds metadata',paid,event,true,selected.slot,expectedCost||0);
+  runId=runId||Utilities.getUuid();operation=operation||'odds-'+Utilities.getUuid();
+  const selected=paid?nbaSharedCall_('reserve',{run_id:runId,operation:operation,expected_credits:expectedCost}):nbaSharedCall_('free_key',{});
+  const slot={label:selected.slot.label,key:selected.slot.key,shared_pool:true,shared_reservation:paid?selected.reservation_id:''};
+  const url=API_BASE+path+'?'+(params?params+'&':'')+'apiKey='+encodeURIComponent(slot.key);
+  return request_(url,paid?'Odds':'Odds metadata',paid,event,true,slot,expectedCost||0);
 }
-function odds_(path,params,paid,event,expectedCost) {
-  return json_(oddsRequest_(path,params,paid,event,expectedCost),'Odds');
+function odds_(path,params,paid,event,expectedCost,runId,operation) {
+  return json_(oddsRequest_(path,params,paid,event,expectedCost,runId,operation),'Odds');
 }
 
 // -----------------------------------------------------------------------------
@@ -1226,13 +1582,13 @@ function importPhase4FixturesToLineHistory() {
 function checkedGames_() {
   const rows=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length),seen={};
   return rows.filter(r=>r[IDX.LOAD]===true).map(r=>{
-    const parts=String(r[IDX.MATCHUP]).split(' @ '), g={id:String(r[IDX.EVENT]),matchup:String(r[IDX.MATCHUP]),home:r[IDX.HOME]||parts[1],away:r[IDX.AWAY]||parts[0],slate:r[IDX.SLATE],kickoff:r[IDX.KICKOFF],propsUpdated:r[IDX.PROPS_UPDATED]};
+    const parts=String(r[IDX.MATCHUP]).split(' @ '), g={id:String(r[IDX.EVENT]),matchup:String(r[IDX.MATCHUP]),home:r[IDX.HOME]||parts[1],away:r[IDX.AWAY]||parts[0],slate:nbaGameTime_(r[IDX.KICKOFF]).day_label,kickoff:r[IDX.KICKOFF],propsUpdated:r[IDX.PROPS_UPDATED]};
     if(!/^[a-zA-Z0-9_-]+$/.test(g.id)||seen[g.id]||!String(g.home||'').trim()||!String(g.away||'').trim()||g.home===g.away) fail_('Invalid or duplicate checked event/team mapping. Refresh Index.');
     seen[g.id]=true; return g;
   });
 }
 function requireGames_() { const games=checkedGames_(); if(!games.length)fail_('No games checked on INDEX.'); return games; }
-function etTime_(iso) {return Utilities.formatDate(new Date(iso),'America/New_York','EEE MM/dd h:mm a');}
+function etTime_(iso) {return nbaGameTime_(iso).full_label;}
 function slateFor_(iso) {
   return Utilities.formatDate(new Date(iso),'America/New_York','EEE, MMM d');
 }
@@ -1242,7 +1598,7 @@ function prepareSlate_(slate,force) {
   const ui=SpreadsheetApp.getUi(), rows=selectedForSlate_(slate), now=Date.now();
   const fresh=rows.filter(r=>r[IDX.PROPS_UPDATED] && now-Date.parse(r[IDX.PROPS_UPDATED])<SLATE_FRESHNESS_MINUTES*60000);
   const requestRows=force?rows:rows.filter(r=>!fresh.includes(r));
-  const estimate=requestRows.length*9;
+  const estimate=requestRows.length*PROP_MARKETS.length;
   const msg='Slate: '+slate+'\nTotal games: '+rows.length+'\nFresh skipped: '+(force?0:fresh.length)+'\nGames to request: '+requestRows.length+'\nMaximum Odds API credits: '+estimate;
   if(ui.alert('Prepare '+slate,msg+'\nProceed?',ui.ButtonSet.OK_CANCEL)!==ui.Button.OK)return;
   const s=sheet_(TAB_INDEX), current=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length); current.forEach((r,i)=>{if(r[IDX.SLATE]===slate)s.getRange(i+2,IDX.LOAD+1).setValue(requestRows.some(x=>x[IDX.EVENT]===r[IDX.EVENT]));});
@@ -1499,6 +1855,16 @@ function gameLines_(g) {
   if(!Number.isFinite(hm)||!Number.isFinite(am))fail_('Invalid moneyline.');
   return {values:[hs===0?'Pick':hs<0?g.home_team:g.away_team,Math.min(hs,as),total,hm,am,(total-hs)/2,(total+hs)/2],prices:{home_spread:Number.isFinite(homeSpread.price)?homeSpread.price:'',away_spread:Number.isFinite(awaySpread.price)?awaySpread.price:'',total_over:Number.isFinite(overTotal.price)?overTotal.price:'',total_under:Number.isFinite(underTotal.price)?underTotal.price:''},source:JSON.stringify({spreads:s.last_update||'',totals:t.last_update||'',h2h:m.last_update||''})};
 }
+function nbaGameOddsFresh_(row,atUtc) {
+  const at=Date.parse(atUtc),written=Date.parse(exportValue_(row[IDX.LINES_UPDATED])),maxAge=NBA_GAME_PRICE_FRESHNESS_MINUTES*60000;
+  if(!Number.isFinite(at)||!Number.isFinite(written)||at-written<0||at-written>=maxAge)return {fresh:false,reason:'GAME_ODDS_REQUEST_STALE_OR_MISSING'};
+  let sources;try{sources=JSON.parse(String(row[IDX.LINES_SOURCE]||''));}catch(ignore){return {fresh:false,reason:'BOOKMAKER_TIMESTAMPS_MISSING'};}
+  for(const market of ['h2h','spreads','totals']){
+    const updated=Date.parse(String(sources[market]||'')),age=at-updated;
+    if(!Number.isFinite(updated)||age<0||age>=maxAge)return {fresh:false,reason:'BOOKMAKER_'+market.toUpperCase()+'_STALE_OR_MISSING'};
+  }
+  return {fresh:true,reason:''};
+}
 function refreshGameLines() {
   const ui=SpreadsheetApp.getUi();if(ui.alert('Refresh game lines?','Up to 3 credits; one DraftKings request, no automatic retry.',ui.ButtonSet.OK_CANCEL)!==ui.Button.OK)return;
   return run_('Game lines',()=>{
@@ -1516,21 +1882,17 @@ function refreshGameLines() {
 }
 function poolDisplayValue_(value) {return value===null||value===undefined||value===''?'UNKNOWN':String(value);}
 function keyPoolStatusText_() {
-  const slots=configuredKeySlots_(),state=readKeyPoolState_(slots);
-  const lines=['Cached API key pool status (no network call):','Active: '+state.active,''];
-  slots.forEach(slot=>{const r=state.slots[slot.label];lines.push(slot.label+(slot.label===state.active?' (ACTIVE)':'')+' — Remaining: '+poolDisplayValue_(r.remaining)+' | Used: '+poolDisplayValue_(r.used)+' | Last cost: '+poolDisplayValue_(r.last)+' | State: '+r.state+' | Updated: '+(r.updated||'NEVER'));});
+  const pool=nbaSharedKeyView_(),lines=['Shared owner key pool (cached; no network call):'];
+  pool.slots.forEach(slot=>lines.push(slot.label+(slot.active?' (PREFERRED)':'')+' — Available: '+slot.remaining+' | Used: '+slot.used+' | State: '+slot.state+' | Checked: '+slot.updated));
   lines.push('','Values come only from prior API response headers. UNKNOWN does not mean zero.');return lines.join('\n');
 }
 function showApiKeyPool() {SpreadsheetApp.getUi().alert(keyPoolStatusText_());}
 function resetApiKeyPool() {
-  const ui=SpreadsheetApp.getUi();
-  if(ui.alert('Reset API key pool?','Use this only after adding, replacing, or repairing keys in Script Properties. It clears cached usage/state and re-enables configured slots. It makes no API calls.',ui.ButtonSet.OK_CANCEL)!==ui.Button.OK)return;
-  return run_('Reset key pool',()=>{const p=PropertiesService.getScriptProperties();p.deleteProperty(KEY_POOL_STATE_PROPERTY);
-    const slots=configuredKeySlots_(),state=readKeyPoolState_(slots);writeKeyPoolState_(state);log_('Reset key pool','','SUCCESS','Configured slot state reset; zero API credits',0);ui.alert('Pool reset. Active slot: '+state.active+'. Cached balances are UNKNOWN until each slot receives an API response.');});
+  fail_('NBA uses the shared owner key pool. Manage keys in the owner dashboard.');
 }
 function showCredits() {return run_('Credits',()=>{
-  const r=oddsRequest_('/sports','',false,'',0),state=readKeyPoolState_(configuredKeySlots_()),record=state.slots[r.slot.label];
-  SpreadsheetApp.getUi().alert('Live free check completed for '+r.slot.label+'. Used: '+poolDisplayValue_(record.used)+'; remaining: '+poolDisplayValue_(record.remaining)+'; last request cost: '+poolDisplayValue_(record.last)+'. Other slots remain cached.');
+  nbaSharedCall_('check_balances',{},true);
+  SpreadsheetApp.getUi().alert(keyPoolStatusText_());
 });}
 
 function ladderScanGame_() {
@@ -1615,13 +1977,22 @@ function analysisEligibility_(game,timestamp) {
 }
 function compactEventAnalysisPayload_(payload,game,timestamp,auditExport) {
   const eventId=String(game.event_id),eligibility=analysisEligibility_(game,timestamp),forEvent=rows=>rows.filter(item=>String(item.event_id||item['Event ID']||'')===eventId);
-  const gameMarkets=forEvent(payload.game_markets||[]),propMarkets=forEvent(payload.prop_markets||[]),alternateMarkets=forEvent(payload.alternate_prop_markets||[]),pendingLegs=(payload.pending_legs||[]).filter(item=>String(item['Event ID']||item.event_id||'')===eventId);
+  const fresh=item=>{
+    const snapshot=Date.parse(timestamp),source=Date.parse(String(item.source_updated_utc||'')),written=Date.parse(String(item.updated_utc||'')),maxAge=SLATE_FRESHNESS_MINUTES*60000;
+    return Number.isFinite(source)&&Number.isFinite(written)&&snapshot-source>=0&&snapshot-source<maxAge&&snapshot-written>=0&&snapshot-written<maxAge;
+  };
+  const gameMarkets=forEvent(payload.game_markets||[]),allProps=forEvent(payload.prop_markets||[]),allAlternates=forEvent(payload.alternate_prop_markets||[]),propMarkets=allProps.filter(fresh),alternateMarkets=allAlternates.filter(fresh),pendingLegs=(payload.pending_legs||[]).filter(item=>String(item['Event ID']||item.event_id||'')===eventId);
   const teams=new Set([String(game.home_team||''),String(game.away_team||'')]),roster=(payload.roster_rows||[]).filter(item=>teams.has(String(item.Team||item.team||'')));
   const coverage=((payload.provider_coverage||{})[eventId]||{}),diagnostics=((payload.cross_provider_diagnostics||{}).events||{})[eventId]||{};
+  const compactGame=JSON.parse(JSON.stringify(game));
+  if(!compactGame.odds||compactGame.odds.actionable!==true) {
+    const old=compactGame.odds||{};
+    compactGame.odds={actionable:false,reason:old.freshness_reason||'Game prices are missing or older than 90 minutes. Refresh game odds with separate approval.',lines_updated_utc:old.lines_updated_utc||'',bookmaker:old.bookmaker||BOOK};
+  }
   return {schema_version:1,kind:'nba_compact_game_analysis',sport:SPORT,league:'NBA',app_build:MOBILE_APP_BUILD,snapshot_id:payload.snapshot_id,export_timestamp_utc:timestamp,event_id:eventId,analysis_eligible:eligibility.eligible,ineligible_reason:eligibility.reason,
-    audit_export:auditExport,game:game,game_markets:gameMarkets,prop_markets:propMarkets,alternate_prop_markets:alternateMarkets,roster_rows:roster,pending_legs:pendingLegs,
+    audit_export:auditExport,game:compactGame,game_markets:gameMarkets,prop_markets:propMarkets,alternate_prop_markets:alternateMarkets,roster_rows:roster,pending_legs:pendingLegs,
     provider_coverage:coverage,cross_provider_diagnostics:diagnostics,provider_usage:payload.provider_usage,
-    data_quality:{props_market_count:propMarkets.length,alternate_prop_market_count:alternateMarkets.length,roster_row_count:roster.length,pending_leg_count:pendingLegs.length,
+    data_quality:{props_market_count:propMarkets.length,alternate_prop_market_count:alternateMarkets.length,stale_prop_market_count:allProps.length-propMarkets.length,stale_alternate_market_count:allAlternates.length-alternateMarkets.length,roster_row_count:roster.length,pending_leg_count:pendingLegs.length,
       duplicate_provider_observations:Number(diagnostics.same_bookmaker_duplicate_observation_count||0),note:'Raw provider quotes and redundant sheet rows remain only in the audit export.'}};
 }
 function writeCompactAnalysisFiles_(payload,timestamp,auditExport) {
@@ -1671,19 +2042,22 @@ function buildAnalysisExport_(games,timestamp,providerUsage) {
   const indexRows=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length),indexById={};indexRows.forEach(r=>indexById[String(r[IDX.EVENT])]=r);
   const exportedGames=games.map(g=>{
     const r=indexById[g.id];if(!r)fail_('Selected event '+g.id+' is missing from INDEX.');
-    return {event_id:g.id,matchup:r[1],home_team:r[IDX.HOME],away_team:r[IDX.AWAY],kickoff_utc:exportValue_(r[IDX.KICKOFF]),kickoff_et:r[2],slate:r[IDX.SLATE],props_updated_utc:exportValue_(r[IDX.PROPS_UPDATED]),
-      odds:{favorite:r[3],spread:r[4],total:r[5],home_moneyline:r[6],away_moneyline:r[7],home_spread_price:r[IDX.HOME_SPREAD_PRICE],away_spread_price:r[IDX.AWAY_SPREAD_PRICE],total_over_price:r[IDX.TOTAL_OVER_PRICE],total_under_price:r[IDX.TOTAL_UNDER_PRICE],home_implied_total:r[8],away_implied_total:r[9],bookmaker:r[IDX.BOOK],lines_updated_utc:exportValue_(r[IDX.LINES_UPDATED]),lines_source_utc:r[IDX.LINES_SOURCE]}};
+    const priceFreshness=nbaGameOddsFresh_(r,timestamp);
+    const time=nbaGameTime_(r[IDX.KICKOFF],Date.parse(timestamp));
+    return {event_id:g.id,matchup:r[1],home_team:r[IDX.HOME],away_team:r[IDX.AWAY],kickoff_utc:exportValue_(r[IDX.KICKOFF]),kickoff_et:time.full_label,slate:time.day_label,game_date_et:time.date_key,props_updated_utc:exportValue_(r[IDX.PROPS_UPDATED]),
+      odds:{favorite:r[3],spread:r[4],total:r[5],home_moneyline:r[6],away_moneyline:r[7],home_spread_price:r[IDX.HOME_SPREAD_PRICE],away_spread_price:r[IDX.AWAY_SPREAD_PRICE],total_over_price:r[IDX.TOTAL_OVER_PRICE],total_under_price:r[IDX.TOTAL_UNDER_PRICE],home_implied_total:r[8],away_implied_total:r[9],bookmaker:r[IDX.BOOK],lines_updated_utc:exportValue_(r[IDX.LINES_UPDATED]),lines_source_utc:r[IDX.LINES_SOURCE],actionable:priceFreshness.fresh,freshness_reason:priceFreshness.reason}};
   });
-  const propHeaders=propsHeaders_(),propMap=headerMap_(propHeaders,['Player','Team','Event ID','Bookmaker'],'PROPS'),propUpdatedIndex=propHeaders.indexOf('Updated');
+  const propHeaders=propsHeaders_(),propMap=headerMap_(propHeaders,['Player','Team','Event ID','Bookmaker'],'PROPS'),propUpdatedIndex=propHeaders.indexOf('Updated'),propSourceIndex=propHeaders.indexOf('Market Source Times JSON');
   const propRows=read_(TAB_PROPS,propHeaders.length).filter(r=>eventSet.has(String(r[propMap['Event ID']])));
   const alternateHeaders=ALT_PROPS_HEADERS,alternateMap=headerMap_(alternateHeaders,['Event ID'],'ALT_PROPS');
   const alternateRows=read_(TAB_ALT_PROPS,alternateHeaders.length).filter(r=>eventSet.has(String(r[alternateMap['Event ID']])));
   const propMarkets=[];
   propRows.forEach(r=>{
+    let marketTimes={};try{marketTimes=JSON.parse(String(r[propSourceIndex]||'{}'));}catch(ignore){}
     OU_MARKETS.forEach(m=>{
       const lineIndex=propHeaders.indexOf(m[1]+' Line'),overIndex=propHeaders.indexOf(m[1]+' O'),underIndex=propHeaders.indexOf(m[1]+' U');
       if(r[lineIndex]===''&&r[overIndex]===''&&r[underIndex]==='')return;
-      propMarkets.push({event_id:String(r[propMap['Event ID']]),player:r[propMap.Player],team:r[propMap.Team],market_key:m[0],line:exportValue_(r[lineIndex]),over_price:exportValue_(r[overIndex]),under_price:exportValue_(r[underIndex]),bookmaker:r[propMap.Bookmaker],source_updated_utc:propUpdatedIndex<0?'':exportValue_(r[propUpdatedIndex])});
+      propMarkets.push({event_id:String(r[propMap['Event ID']]),player:r[propMap.Player],team:r[propMap.Team],market_key:m[0],line:exportValue_(r[lineIndex]),over_price:exportValue_(r[overIndex]),under_price:exportValue_(r[underIndex]),bookmaker:r[propMap.Bookmaker],source_updated_utc:exportValue_(marketTimes[m[0]]||''),updated_utc:propUpdatedIndex<0?'':exportValue_(r[propUpdatedIndex])});
     });
   });
   const rosterRows=read_(TAB_ROSTER,ROSTER_HEADERS.length).filter(r=>teams.has(String(r[2])));
@@ -1694,8 +2068,10 @@ function buildAnalysisExport_(games,timestamp,providerUsage) {
   const providerQuotes=providerQuoteObjects_(eventSet),providerCoverage=providerCoverage_(providerQuotes,eventIds),providerCoverageSummary=providerCoverageSummary_(providerCoverage),crossProviderDiagnostics=crossProviderExportDiagnostics_(providerQuotes,eventIds);
   const gameMarkets=[];exportedGames.forEach(game=>{
     const odds=game.odds||{},source=odds.lines_source_utc||'',favoriteSpread=Number(odds.spread),homeSpread=odds.favorite===game.home_team?favoriteSpread:-favoriteSpread,awaySpread=-homeSpread;
+    if(odds.actionable!==true)return;
     [['h2h',game.home_team,'Moneyline',odds.home_moneyline],['h2h',game.away_team,'Moneyline',odds.away_moneyline],['spreads',game.home_team,Number.isFinite(homeSpread)?homeSpread:'',odds.home_spread_price],['spreads',game.away_team,Number.isFinite(awaySpread)?awaySpread:'',odds.away_spread_price],['totals','Over',odds.total,odds.total_over_price],['totals','Under',odds.total,odds.total_under_price]].forEach(item=>{if(Number.isFinite(Number(item[3])))gameMarkets.push({event_id:game.event_id,market_key:item[0],selection:item[1],line:exportValue_(item[2]),price:exportValue_(item[3]),bookmaker:odds.bookmaker||BOOK,source_updated_utc:exportValue_(odds.lines_updated_utc),market_source_times_json:source});});
   });
+  exportedGames.forEach(game=>{if(!game.odds.actionable)warnings.push(game.matchup+': game prices are stale or missing; game bets are excluded from actionable analysis.');});
   return {schema_version:3,sport:SPORT,league:'NBA',export_timestamp_utc:timestamp,event_ids:eventIds.slice(),games:exportedGames,
     injury_pull:{status:'SKIPPED',succeeded_on_this_run:false,skipped_on_this_run:true,detail:'Analysis export is sheet-only and did not call Pull Injuries.'},
     game_markets:gameMarkets,props_rows:propRows.map(r=>exportRowObject_(propHeaders,r)),prop_markets:propMarkets,

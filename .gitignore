@@ -3,3 +3,11 @@
 work/
 build/
 node_modules/
+.clasprc.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# clasp pulls JavaScript copies; the maintained Apps Script source is .gs.
+outputs/NbaOddsLoader.js

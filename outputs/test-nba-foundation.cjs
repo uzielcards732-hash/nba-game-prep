@@ -31,16 +31,15 @@ assert.match(source, /DISABLED_PENDING_COVERAGE_TEST/);
 assert.ok(!between(source, 'function mobileLoadAndExport', 'function safeError_').includes('fetchRoster_'));
 assert.ok(!between(source, 'function loadCheckedProps', 'function gameLines_').includes('fetchRoster_'));
 
-const keySave = between(source, 'function mobileSaveApiKey', 'function mobileRefreshCreditBalances');
-assert.match(keySave, /properties\.setProperty\(property,key\)/);
-assert.match(keySave, /properties\.deleteProperty\(KEY_POOL_STATE_PROPERTY\)/);
-assert.match(keySave, /already configured in another NBA slot/);
-assert.ok(!keySave.includes("+key+"));
+const keySave = between(source, 'function mobileSaveApiKey', 'function nbaLegacySaveApiKey_');
+assert.match(keySave, /Manage keys in the owner dashboard/);
+assert.doesNotMatch(keySave, /setProperty|log_|request_/);
+assert.match(source, /function nbaSharedCall_/);
 
-assert.match(mobile, /var APP_BUILD='2026\.10\.07-nba\.1';/);
-assert.match(mobile, /Add key/);
-assert.match(mobile, /Replace key/);
-assert.match(mobile, /mobileSaveApiKey/);
+assert.match(mobile, /var APP_BUILD='2026\.10\.22-nba-team-labels\.1';/);
+const activeSettings = between(mobile, 'function renderCreditPool(pool){', "byId('settings').onclick");
+assert.match(activeSettings, /same owner-managed key pool as NFL and Friends/);
+assert.doesNotMatch(activeSettings, /Add key|Replace key|mobileSaveApiKey|window\.prompt/);
 assert.match(mobile, /NBA Tools/);
 assert.ok(!mobile.includes('NFL_MOBILE_ES5'));
 assert.match(mobile, /Points, rebounds, assists, threes, and PRA/);

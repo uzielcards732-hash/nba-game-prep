@@ -3,22 +3,64 @@
 ## Current state
 
 **What exists:** An isolated NBA Sheet, bound Apps Script project, and owner-only
-NBA Game Prep web app version 1 exist. Local source, mobile UI, and offline
-foundation/workflow tests are under `outputs/`. No NBA credential, Drive export,
-or live provider data has been created.
+NBA Game Prep web app at version 13 exist. Source, mobile UI, and NBA offline
+tests are under `outputs/`. Standard and alternate prop loading, immutable
+exports, three AI sharing choices, and shared owner key access are deployed.
 
-**What is in flight:** Checkpoint 3 preparation has published the NBA Perplexity
-handoff correction as web-app version 2. No live provider test has run.
-SportsGameOdds remains disabled pending its separately approved coverage test.
-A Knicks-inspired visual update is published as NBA Game Prep version 3.
-A distinct basketball mark is published as NBA Game Prep version 4.
+**What is in flight:** NBA version 10 repairs granular trigger consent and
+abandoned queues. All five offline suites pass. The owner completed Google's
+permission flow; the live setup check returned READY and reconciled the old
+unclaimed startup to FAILED. The live temporary background probe SUCCEEDED
+from 2026-10-21T00:25:35.762Z to 00:26:37.748Z with zero provider calls. The
+Triggers page then showed zero triggers, confirming probe cleanup. The app
+reopens on game selection. The real paid NBA load/export path still needs
+verification during the next normally approved load.
+The date/time repair is DEPLOYED in version 11. It derives Eastern game dates
+and tipoff labels from canonical event timestamps instead of auto-converted
+Sheet display cells, uses Today/Tomorrow day tabs, defaults to the next
+upcoming day, and formats cost-review/export times consistently. All six NBA
+offline suites pass, including UTC-midnight and DST boundaries. No provider
+credits or Sheet columns are added. Live UI verification showed Today/Tomorrow
+day tabs and readable Eastern tipoff/update times on the existing app URL.
+The shared-key library v2 and NBA adapter are published; NFL/Friends remain
+pinned to library v1. The owner chose no daily trigger.
+SportsGameOdds remains disabled pending its separately approved NBA coverage
+test. The version 4 deployment remains available for rollback.
 
-**Next action:** Open the NBA Game Prep version 4 link and verify the basketball
-mark, then separately approve an explicitly budgeted one-game provider coverage
-test if desired.
+**Deployed recommendation update (2026-10-21):** All three active AI handoffs now
+use best-supported basketball judgment without requiring proven mispricing.
+Five classified candidates per game remain; the final shortlist is up to ten
+RECOMMENDED/CONDITIONAL only, without padding. Guidance and actual Share-button
+tests are aligned. Six existing NBA suites and 17 new checks pass. The isolated
+live pull matched local app files before editing. Version 12 is deployed at the
+existing URL, build 2026.10.21-nba-selection.1; version 11 remains the rollback.
+Deployment listing confirms version 12. External AI reasoning and the updated
+iPhone page have not yet been validated. Compatible version 11 exports remain usable.
 
-**Credit position:** Zero NBA provider credits spent. Future standard loads are
-up to five credits per selected game; alternates add up to five more.
+**Deployed team-label update (2026-10-22):** Shared ChatGPT/Claude/Perplexity
+instructions label players with verified NBA abbreviations in game tables,
+shortlists and parlays, e.g. Shai Gilgeous-Alexander (OKC). Unresolved mappings
+show (team unverified); exact exported identities and quotes stay unchanged.
+All seven NBA suites pass, including 17 Share-button/fallback checks with the
+new label requirements. Isolated live source matched before editing. Version 13
+is deployed at the existing URL, build 2026.10.22-nba-team-labels.1. Deployment
+listing confirms it; version 12 remains rollback. Compatible prior exports work.
+
+**Next action:** Open the updated app and verify a fresh analysis renders
+the labels. Version 13 is production.
+External AI compliance remains unverified. No extra paid test is authorized.
+NFL and Friends are unchanged.
+
+**Repository publication (2026-11-02):** Owner requested publication to
+https://github.com/uzielcards732-hash/nba-game-prep.git (public, initially empty).
+Source and full existing history passed the credential scanner. Local deployment
+configuration, generated artifacts and the stale pulled .js duplicate are excluded.
+
+**Credit position:** Integration and offline checks made zero paid provider
+calls; the live game-list smoke test used the free endpoint. On-demand game-list
+refresh is free; confirmed game-odds refresh costs three. Standard props are
+up to five per game and opted-in alternates up to five, now drawing from the
+same owner pool as NFL/Friends.
 
 ## Chronology
 
@@ -67,3 +109,98 @@ up to five credits per selected game; alternates add up to five more.
 - 2026-10-07: Created immutable NBA Game Prep version 4 for the basketball mark.
 - 2026-10-07: Created a separate version 4 web-app deployment; version 3 remains available for rollback.
 - 2026-10-07: Made no Odds API or SportsGameOdds request during icon deployment.
+- 2026-10-20: Compared an isolated pull of live NBA v4 with local source; no drift found.
+- 2026-10-20: Built local-only daily free games refresh and source-aware price freshness.
+- 2026-10-20: Added checkpointed manual loading with raw receipts and exact-run recovery.
+- 2026-10-20: Repaired email content and updated all three NBA research handoffs.
+- 2026-10-20: Passed isolated offline mocks and NBA tests; no provider call, push, deployment, or trigger installation.
+- 2026-10-20: Rechecked live NBA source against the local upgrade and found no conflicting remote edits.
+- 2026-10-20: Passed foundation, workflow, refresh, syntax, and diff checks without provider calls.
+- 2026-10-20: Published NBA source as immutable versions 5 and 6 and deployed version 6 at a new owner-only app link.
+- 2026-10-20: Corrected the completion email link to the new deployment; version 4 remains available for rollback.
+- 2026-10-20: Confirmed the deployed app opens; daily trigger installation awaits Google authorization, and no paid call or email was sent.
+- 2026-10-20: Reopened the production NBA script after the owner's first Google authorization.
+- 2026-10-20: Confirmed the Apps Script project still had zero daily triggers.
+- 2026-10-20: Ran the trigger installer; Google rejected `ScriptApp.getProjectTriggers` without `script.scriptapp` permission.
+- 2026-10-20: Reopened Google's permission review for the owner to approve trigger management.
+- 2026-10-20: Left daily automation inactive; no provider request or email was sent.
+- 2026-10-20: Confirmed the NBA Apps Script trigger page still showed zero triggers.
+- 2026-10-20: Configured one time-driven `nbaDailyGamesRefresh` trigger for the 9–10 a.m. Eastern window.
+- 2026-10-20: Google opened an unverified-app approval page before the trigger could be saved.
+- 2026-10-20: Brought the grouped Google approval tab to the front for the owner to review.
+- 2026-10-20: No trigger was claimed active; no paid provider request or email was sent.
+- 2026-10-20: Checked the NBA Apps Script trigger page again after the owner reported no visible approval tab.
+- 2026-10-20: Confirmed the project still shows zero installed triggers.
+- 2026-10-20: Verified the script timezone remains `America/New_York`.
+- 2026-10-20: Switched to a stable direct Triggers-page link for owner authorization and setup.
+- 2026-10-20: Left automatic refresh inactive; no provider request or email was sent.
+- 2026-10-20: Compared isolated live pulls of the NBA app and shared library with local sources before editing.
+- 2026-10-20: Added owner-only NBA registration and conservative shared-key reservations to a local library v2 candidate.
+- 2026-10-20: Routed NBA free and paid Odds API requests through the shared pool; removed key entry from the active mobile Settings.
+- 2026-10-20: Passed the NBA offline suites and shared-store mock tests with no real provider calls or email.
+- 2026-10-20: Kept the shared library and NBA changes local only; no app was pushed or deployed.
+- 2026-10-20: Published the private shared library as immutable version 2; existing NFL/Friends apps remain pinned to version 1.
+- 2026-10-20: Pushed the NBA shared-key adapter and deployed versions 7 then 8 on the existing owner-only web-app URL.
+- 2026-10-20: Ran the live free game-list refresh through the deployed app; INDEX showed 18 games.
+- 2026-10-20: Confirmed NBA Settings displayed four shared slots without key-entry controls or credential values.
+- 2026-10-20: Made no paid Odds API request or email; paid NBA loads remain unverified until normal use.
+- 2026-10-20: Inspected three failed NBA version 8 load executions and found no continuation-worker executions.
+- 2026-10-20: Confirmed the NBA Apps Script project showed zero installed triggers; exact root exception remains hidden by the generic error wrapper.
+- 2026-10-20: Isolated live-source pull confirmed production matches local source except this repair; credential-cache save hit a sandbox permission error.
+- 2026-10-20: Fixed blank-lease recovery and added local-only trigger preflight, startup errors, and failed-stage cleanup; all four NBA offline suites passed.
+- 2026-10-20: Made no paid provider call, email, push, or deployment during diagnosis.
+- 2026-10-20: Compared an isolated live-source pull with the NBA repair and found no unrelated source drift.
+- 2026-10-20: Passed all four NBA offline suites before publication; no provider request or email was sent.
+- 2026-10-20: Pushed the repair and redeployed the existing owner-only NBA link as immutable version 9; version 8 remains in history.
+- 2026-10-20: Confirmed the deployed app opens and shows 18 games without making a paid request.
+- 2026-10-20: Deferred the safe trigger-permission check because Google authorization needs explicit owner approval; paid loading is still unverified.
+- 2026-10-20: Received explicit owner approval and ran `authorizeNbaBackgroundLoading` from the NBA Apps Script editor.
+- 2026-10-20: The check failed at `ScriptApp.getProjectTriggers`; Google showed no new consent screen.
+- 2026-10-20: Inspected project settings and confirmed the last failed export record coexists with an orphaned RUNNING stage.
+- 2026-10-20: No continuation trigger, paid provider call, email, or fresh load was started by the permission check.
+- 2026-10-20: Trigger OAuth scope repair and safe state reconciliation remain to be implemented before paid testing.
+- 2026-10-20: Compared an isolated live pull with local NBA source; version 9 matched before this follow-up repair.
+- 2026-10-20: Applied Google's documented granular-consent setup using `requireScopes` outside exception handling.
+- 2026-10-20: Added locked reconciliation for failed unclaimed startups and a temporary zero-provider trigger probe.
+- 2026-10-20: Passed all five NBA offline suites, including consent propagation, reconciliation boundaries, and probe idempotence.
+- 2026-10-20: Automatic approval review blocked the production push pending explicit follow-up deployment approval; no code, odds call, or email was published.
+- 2026-10-20: Received explicit owner deployment approval and pushed the tested NBA trigger-consent repair.
+- 2026-10-20: Published immutable version 10 on the existing NBA app URL; version 9 remains available in version history.
+- 2026-10-20: Ran the approved setup function in the editor and confirmed it now opens Google's Authorization required dialog.
+- 2026-10-20: The owner completed Google consent; setup returned READY and reconciled the old orphaned startup to FAILED.
+- 2026-10-20: Confirmed the live background probe SUCCEEDED with zero provider calls and removed its trigger; no paid call or email was made.
+- 2026-10-20: Compared live NBA version 10 with local source before the date/time repair; no source drift was found.
+- 2026-10-20: Traced confusing dates to auto-converted Sheet display cells and direct rendering of Date/UTC values.
+- 2026-10-20: Added canonical Eastern day grouping, readable tipoff times, upcoming-day default, and dated review/export summaries locally.
+- 2026-10-20: Passed six NBA suites covering midnight UTC, DST, corrupted display cells, day selection, and existing workflow safeguards.
+- 2026-10-20: Made no provider call, email, Sheet change, push, or deployment; date/time changes await deployment approval.
+- 2026-10-20: Received owner approval and pushed the tested NBA date/time changes.
+- 2026-10-20: Created immutable version 11 and updated the existing owner-only NBA deployment; version 10 remains available for rollback.
+- 2026-10-20: Verified the live app shows Today/Tomorrow tabs and Eastern tipoff times derived from canonical event timestamps.
+- 2026-10-20: Confirmed the live update label is readable and started games retain their pregame-closed label.
+- 2026-10-20: Made no provider call or email during deployment; real paid load/export verification remains for normal approved use.
+- 2026-10-21: Compared an isolated live NBA pull; app source and manifest matched before this edit, preserving existing local changes.
+- 2026-10-21: Updated the shared policy and three destination endings for informed judgment, five classified candidates and an unpadded up-to-ten shortlist.
+- 2026-10-21: Aligned NBA guidance and passed six existing suites plus 17 actual-controller sharing, fallback and contract-fixture checks.
+- 2026-10-21: Made zero provider calls, emails, Sheet changes, pushes or deployments; NFL and Friends remain unchanged.
+- 2026-10-21: Awaiting deployment approval and a fresh analysis behavior review; offline prompt tests do not establish external AI compliance.
+- 2026-10-21: Received owner deployment approval and compared a new isolated live pull, finding only the approved handoff changes.
+- 2026-10-21: Added matching page/server build 2026.10.21-nba-selection.1 and retained compatible version 11 exports.
+- 2026-10-21: Passed all seven NBA offline suites, including 17 active Share-button and fallback checks, before publishing.
+- 2026-10-21: Published immutable version 12 and verified the existing NBA deployment now points to it; version 11 is retained for rollback.
+- 2026-10-21: Made no provider call, email or NFL/Friends change; iPhone and fresh AI report verification remain pending.
+- 2026-10-22: Compared an isolated live NBA pull against local app files; no remote drift found and existing changes preserved.
+- 2026-10-22: Added verified team abbreviations to shared NBA reporting instructions, with (team unverified) fallback and unchanged exact quotes.
+- 2026-10-22: Aligned project guidance and tested all three actual Share-button payloads plus native/clipboard failure fallbacks.
+- 2026-10-22: Passed all seven NBA offline suites, including 17 sharing checks; made zero provider calls, emails or Sheet changes.
+- 2026-10-22: Team-label change remains local pending deployment approval; production version 12 and NFL/Friends remain unchanged.
+- 2026-10-22: Received owner approval and compared another isolated production pull; only the approved shared label instruction differed.
+- 2026-10-22: Updated matching page/server build to 2026.10.22-nba-team-labels.1 and preserved compatible prior exports.
+- 2026-10-22: Repassed all seven NBA suites, including 17 actual sharing and clipboard-fallback checks, before publication.
+- 2026-10-22: Published immutable version 13 and verified the existing app deployment points to it; version 12 retained for rollback.
+- 2026-10-22: Made zero provider calls, emails or NFL/Friends changes; real AI report rendering remains unverified.
+- 2026-11-02: Confirmed the NBA project has its own repository; the newer ChatGPT/NBA directory is empty and is not the source checkout.
+- 2026-11-02: Verified the requested GitHub repository is public and initially empty; no force push is needed.
+- 2026-11-02: Scanned current NBA files and all existing commits for credentials; no leaks found.
+- 2026-11-02: Excluded local credentials, environment files and the stale pulled .js duplicate; preserved generated-file exclusions.
+- 2026-11-02: Prepared source, guidance and NBA tests for GitHub publication; no app deployment, provider request or email is part of this task.

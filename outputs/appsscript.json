@@ -1,6 +1,14 @@
 {
   "timeZone": "America/New_York",
   "dependencies": {
+    "libraries": [
+      {
+        "userSymbol": "SharedNFL",
+        "libraryId": "158RFehQUe9OmP8B-Sq5yx346Ul-5pDFaE9wVpup_8K6kZfskW6a_j7lf",
+        "version": "2",
+        "developmentMode": false
+      }
+    ]
   },
   "webapp": {
     "access": "MYSELF",

@@ -4,7 +4,7 @@
 
 **Phase 2 price comparison (2026-11-02, cloud session, branch
 `claude/phase2-consensus` from Phase 1, build `2026.11.02-nba-consensus.1`,
-LOCAL ONLY, NOT DEPLOYED; live stays version 14):**
+pushed to GitHub 2026-11-02 on owner OK, NOT DEPLOYED; live stays version 14):**
 
 - Ten book request on every paid props and game lines call: draftkings,
   fanatics, fanduel, betmgm, williamhill_us, betrivers, hardrockbet, pinnacle,
@@ -344,4 +344,4 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Workflow file pushed to main (owner OK); first deploy button check passed; live v13 byte-matches 140074a; tag nba-v13 recorded. Nothing deployed.
 - 2026-11-02: Deployed Phase 1 as version 14 via the deploy button (run 41500024745); verified byte-match and tagged nba-v14. Paid test pending.
 - 2026-11-02: Phase 2 built on `claude/phase2-consensus`: ten book request, Fanatics COMPARE_QUOTES, MARKET_CONSENSUS with price_gap_pp, overcharge hold, pricing in exports and handoffs.
-- 2026-11-02: New suite test-nba-consensus (20); 19 fail on live v14 source; all 11 suites pass. Local only, not deployed.
+- 2026-11-02: New suite test-nba-consensus (20); 19 fail on live v14 source; all 11 suites pass. Branch pushed on owner OK; not deployed.

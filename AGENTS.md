@@ -5,6 +5,38 @@ and provider data remain isolated from NFL. The owner's existing shared key
 library supplies Odds API keys and conservative quota accounting to both apps;
 do not read credentials from or deploy the NFL personal app.
 
+## Edge thesis (standing)
+
+The system's edge thesis is price based, not prediction based: DraftKings
+versus Fanatics versus a median no vig consensus of reference books at
+identical lines. Those are market references and a line shopping aid, never
+refusal reasons. It does not forecast player output. Do not propose, build,
+or revive projection methods; if a task seems to need one, stop and say so.
+
+## Credit budget (hard constraint)
+
+Odds API cost is markets x regions per event odds call. The app sends
+`bookmakers=` instead of `regions=`; up to ten books count as one region.
+Current costs: free game list (events endpoint) 0; game lines 3 per refresh
+(h2h, spreads, totals); standard props 5 per game; opted in alternates 5 per
+game. Every new paid feature must state its projected monthly cost before it
+is built.
+
+- Log expected credit cost before every paid call and the actual
+  `x-requests-last` after, into LOG.
+- Every credit spending function needs a dry run mode that shows the request
+  and its cost without calling.
+- No automatic retries on paid endpoints. Fail loudly.
+- Idempotent. Rerunning must not duplicate rows.
+- Do not modify existing tabs beyond adding columns. List columns added.
+
+## Credential access
+
+This repository and cloud sessions have no Odds API, SportsGameOdds, or
+clasp credentials. Paid fetches run only inside Apps Script, where keys live
+in the shared library's Script Properties. Flag missing credentials once,
+then propose a parse only path. Never ask for a key in chat.
+
 ## Safety and costs
 
 - Odds API credentials are managed only in the existing owner dashboard and
@@ -53,3 +85,18 @@ Never guess a team or change the underlying exported player identity/quote.
 
 Local source is under `outputs/`. Do not create a Google Apps Script project,
 push, deploy, or make a live provider request without explicit owner approval.
+
+- The repo (`outputs/NbaOddsLoader.gs`, `outputs/Mobile.html`,
+  `outputs/appsscript.json`) is the source of truth. Do not edit code in the
+  Apps Script editor.
+- `.clasp.json` is local only (gitignored). `.claspignore` is an allowlist:
+  only `appsscript.json`, `NbaOddsLoader.gs` and `Mobile.html` are pushed.
+- Run `clasp pull` into an isolated folder at the start of any session that
+  will change Apps Script code, and compare it with the repo before editing.
+- `clasp push` and deployment only on the owner's explicit "deploy now".
+  Report what changed first. State at the end of every session whether a
+  change is deployed or local only.
+- The NBA manifest pins shared library `SharedNFL` version 2. NFL and Friends
+  pin version 1; never change their pin.
+- Update the STATE section at the top of BUILD_LOG.md at the end of every
+  session; it is what another tool reads to pick up the project cold.

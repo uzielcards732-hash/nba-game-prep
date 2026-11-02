@@ -2,6 +2,38 @@
 
 ## Current state
 
+**Phase 0 baseline (2026-11-02, cloud session, free checks only, branch
+`claude/phase0-baseline`, local only, not pushed, nothing deployed):**
+
+- Secret scan of all 12 commits and every tracked file: no API keys, tokens,
+  OAuth or clasp credentials, private keys or invitation links. The public
+  repo does contain the owner only web app URL (README, `NbaOddsLoader.gs`)
+  and the shared library script ID (`appsscript.json`). Neither is a
+  credential: the web app is `MYSELF` access and the library needs Google
+  sharing to use.
+- clasp: no clasp install or `.clasprc.json` in the cloud container, so live
+  vs repo was NOT verified here. Repo source carries build
+  `2026.10.22-nba-team-labels.1`, which the log records as live version 13.
+  Treat "repo equals live v13" as recorded, not reverified, until an isolated
+  `clasp pull` or the Phase 1 deploy button check runs.
+- Offline: all seven NBA suites pass. `outputs/test-loader.cjs` is a copied
+  NFL suite that crashes on test 1 (`MAX_ROSTER_AGE_HOURS` undefined). Dead
+  NFL code also remains in `NbaOddsLoader.gs` (nflverse grading, roster CSV
+  with undefined `ROSTER_URL`); not on any active NBA path.
+- Inventory: one book (`bookmakers=draftkings`, no `regions`). Game lines
+  h2h/spreads/totals = 3 credits per refresh; standard props points,
+  rebounds, assists, threes, PRA = 5 per game; opt in alternates (same five,
+  alternate) = 5 per game; free game list = 0. 90 minute caches for each.
+  No per night credit cap exists. SportsGameOdds disabled.
+- Night cost: 15 games standard only = 3 + 15 x 5 = 78; with alternates
+  = 3 + 15 x 10 = 153.
+- Triggers: no daily trigger (owner choice). Each paid load arms one short
+  `continueNbaMobileLoad` trigger and clears it when done. The trigger list
+  itself cannot be read without editor access.
+- Docs: added `CLAUDE.md`; added edge thesis, credit budget, credential
+  access and deployment sections to `AGENTS.md`.
+- Next: owner review of Phase 0, then Phase 1 on a new branch.
+
 **What exists:** An isolated NBA Sheet, bound Apps Script project, and owner-only
 NBA Game Prep web app at version 13 exist. Source, mobile UI, and NBA offline
 tests are under `outputs/`. Standard and alternate prop loading, immutable
@@ -204,3 +236,8 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Scanned current NBA files and all existing commits for credentials; no leaks found.
 - 2026-11-02: Excluded local credentials, environment files and the stale pulled .js duplicate; preserved generated-file exclusions.
 - 2026-11-02: Prepared source, guidance and NBA tests for GitHub publication; no app deployment, provider request or email is part of this task.
+- 2026-11-02: Phase 0 baseline in a cloud session: redacted secret scan of all commits found no credentials; web app URL and library ID are public but not secrets.
+- 2026-11-02: No clasp or clasp credentials in the cloud container; live vs repo not reverified (recorded live: version 13, build 2026.10.22-nba-team-labels.1).
+- 2026-11-02: Seven NBA offline suites pass; the copied NFL `test-loader.cjs` fails and is not an NBA suite.
+- 2026-11-02: Inventoried markets, costs and triggers; added CLAUDE.md and AGENTS.md standing sections modeled on NFL.
+- 2026-11-02: Zero provider calls, emails, pushes or deployments; NFL untouched. Local branch only.

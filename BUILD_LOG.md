@@ -3,8 +3,10 @@
 ## Current state
 
 **Phase 3 part 1, usage context (2026-11-02, cloud session, branch
-`claude/phase3-usage` from Phase 2, build `2026.11.02-nba-usage.1`, LOCAL
-ONLY, NOT DEPLOYED; live is version 15):**
+`claude/phase3-usage` from Phase 2, build `2026.11.02-nba-usage.1`):
+DEPLOYED as version 16, commit `7f75561`, owner "deploy now", deploy button
+run 41525521158; every step passed including the post-deploy byte-match;
+tag `nba-v16`. Rollback: version 15.**
 
 - Source: sportsdataverse hoopR NBA player box scores, release
   `espn_nba_player_boxscores`, file `player_box_<season end year>.csv`
@@ -378,3 +380,4 @@ same owner pool as NFL/Friends.
 - 2026-11-02: New suite test-nba-consensus (20); 19 fail on live v14 source; all 11 suites pass. Branch pushed on owner OK; not deployed.
 - 2026-11-02: Phase 2 deployed as version 15 (run 41523700337); the verify step read a stale listing; check run 41524481031 confirmed v15 byte-match and tagged nba-v15.
 - 2026-11-02: Phase 3 part 1 built on `claude/phase3-usage`: usage context from hoopR box scores, rest and back to back flags; deploy verify retries the listing. 12 suites pass. Local only.
+- 2026-11-02: Phase 3 part 1 deployed as version 16 via the deploy button (run 41525521158); all steps passed; tag nba-v16. Supervised paid test pending.

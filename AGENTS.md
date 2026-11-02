@@ -22,6 +22,15 @@ Current costs: free game list (events endpoint) 0; game lines 3 per refresh
 game. Every new paid feature must state its projected monthly cost before it
 is built.
 
+- Nightly cap (owner set 2026-11-02): 160 Odds API credits per Eastern
+  calendar date across every paid request (`NBA_NIGHT_CAP_CREDITS`). Each
+  request counts its expected cost before it is sent and moves to the actual
+  `x-requests-last` after; an unconfirmed outcome keeps its expected cost. A
+  load or refresh that would exceed the cap is refused before any request.
+  Worst case: 160 x 30 nights = 4,800 credits a month.
+- A saved paid response is reused for 90 minutes from its capture (same event,
+  markets and bookmaker) instead of being bought again. Started games cost 0
+  and are never requested.
 - Log expected credit cost before every paid call and the actual
   `x-requests-last` after, into LOG.
 - Every credit spending function needs a dry run mode that shows the request

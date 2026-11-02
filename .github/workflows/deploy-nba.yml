@@ -1,0 +1,258 @@
+# Owner-run deploy button for the NBA Game Prep app (never NFL, never Friends,
+# never the shared library). It only runs when the owner presses
+# "Run workflow"; nothing triggers it automatically.
+#
+#   check    free: tests, then confirm the live code matches its recorded commit;
+#            never touches the live app (it may record a missing version tag)
+#   deploy   check, then push, create a version, move the web app, verify, tag
+#   rollback point the web app and HEAD back at an earlier tagged version
+#
+# Setup and use: docs/DEPLOY_BUTTON.md
+name: Deploy NBA app
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check (free, never touches the live app), deploy, or rollback"
+        type: choice
+        options: [check, deploy, rollback]
+        default: check
+      confirm:
+        description: "For deploy or rollback, type exactly: deploy now"
+        type: string
+        default: ""
+      rollback_version:
+        description: "Rollback only: the version number to go back to"
+        type: string
+        default: ""
+      live_commit:
+        description: "Only if the check asks for it: the commit the live version was deployed from"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-nba
+  cancel-in-progress: false
+
+env:
+  CLASP_VERSION: 3.4.1
+
+jobs:
+  nba:
+    if: github.triggering_actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the selected branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Confirm the request
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRM: ${{ inputs.confirm }}
+          ROLLBACK_VERSION: ${{ inputs.rollback_version }}
+        run: |
+          if [ "$MODE" != "check" ] && [ "$CONFIRM" != "deploy now" ]; then
+            echo "Stopped: for $MODE, type exactly: deploy now"; exit 1
+          fi
+          if [ "$MODE" = "rollback" ] && ! [[ "$ROLLBACK_VERSION" =~ ^[0-9]+$ ]]; then
+            echo "Stopped: rollback needs the version number to go back to."; exit 1
+          fi
+          echo "Mode: $MODE. Commit: $GITHUB_SHA on $GITHUB_REF_NAME."
+
+      # The suite list comes from CLAUDE.md on the selected branch, so a branch
+      # always runs exactly the suites it ships with, plus these button checks.
+      - name: Run every offline test suite
+        run: |
+          set -e
+          { grep -oE '`node [A-Za-z0-9_./-]+\.cjs`' CLAUDE.md | tr -d '`'; echo "node deploy/test.cjs"; } | sort -u > "$RUNNER_TEMP/suites.txt"
+          [ "$(wc -l < "$RUNNER_TEMP/suites.txt")" -ge 10 ] || { echo "Stopped: CLAUDE.md lists too few test suites."; exit 1; }
+          while read -r suite; do echo "== $suite"; $suite; done < "$RUNNER_TEMP/suites.txt"
+
+      - name: Confirm the shared library pin stays NBA only
+        run: node deploy/deploy.cjs library-pin outputs/appsscript.json
+
+      - name: Install clasp and the owner's Google sign-in
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          NBA_SCRIPT_ID: ${{ secrets.NBA_SCRIPT_ID }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then echo "Stopped: the CLASPRC_JSON secret is not set. See docs/DEPLOY_BUTTON.md."; exit 1; fi
+          if ! [[ "$NBA_SCRIPT_ID" =~ ^[A-Za-z0-9_-]{20,}$ ]]; then echo "Stopped: the NBA_SCRIPT_ID secret is not set. See docs/DEPLOY_BUTTON.md."; exit 1; fi
+          umask 077
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          printf '{"scriptId":"%s","rootDir":"outputs","scriptExtensions":[".gs"]}' "$NBA_SCRIPT_ID" > .clasp.json
+          npm install --global --no-audit --no-fund "@google/clasp@${CLASP_VERSION}" > /dev/null
+          clasp --version
+
+      - name: Find the live version
+        id: live
+        run: |
+          set -e
+          DEPLOYMENT_ID=$(node deploy/deploy.cjs deployment-id outputs/NbaOddsLoader.gs)
+          echo "deployment=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          clasp --json list-deployments > "$RUNNER_TEMP/deployments.json"
+          clasp --json list-versions > "$RUNNER_TEMP/versions.json"
+          LIVE=$(node deploy/deploy.cjs live-version "$RUNNER_TEMP/deployments.json" "$DEPLOYMENT_ID")
+          NEXT=$(node deploy/deploy.cjs next-version "$RUNNER_TEMP/versions.json")
+          echo "live=$LIVE" >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Web app is on version $LIVE. The next new version would be $NEXT."
+
+      # Rollback skips the next three steps: it is the way out when live code is
+      # already wrong, so it must not require live code to match anything.
+      - name: Find the commit the live version came from
+        id: livecommit
+        if: inputs.mode != 'rollback'
+        env:
+          LIVE: ${{ steps.live.outputs.live }}
+          GIVEN: ${{ inputs.live_commit }}
+        run: |
+          TAG="nba-v$LIVE"
+          git fetch --tags --quiet
+          if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
+            COMMIT=$(git rev-list -n 1 "$TAG"); SOURCE="tag $TAG"
+          elif [ -n "$GIVEN" ] && git cat-file -e "$GIVEN^{commit}" 2> /dev/null; then
+            COMMIT=$(git rev-parse "$GIVEN"); SOURCE="the live_commit you entered"
+          else
+            echo "Stopped: there is no record of which commit version $LIVE came from (no tag $TAG)."
+            echo "Rerun with live_commit set to that commit; BUILD_LOG.md lists it."; exit 1
+          fi
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "tag_missing=$([ "$SOURCE" = "tag $TAG" ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+          echo "Version $LIVE is recorded as commit $COMMIT ($SOURCE)."
+
+      - name: Confirm live code matches that commit (HEAD and the web app version)
+        if: inputs.mode != 'rollback'
+        env:
+          LIVE: ${{ steps.live.outputs.live }}
+          COMMIT: ${{ steps.livecommit.outputs.commit }}
+          NBA_SCRIPT_ID: ${{ secrets.NBA_SCRIPT_ID }}
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/expected" "$RUNNER_TEMP/head" "$RUNNER_TEMP/version"
+          for f in NbaOddsLoader.gs Mobile.html appsscript.json; do git show "$COMMIT:outputs/$f" > "$RUNNER_TEMP/expected/$f"; done
+          for d in head version; do printf '{"scriptId":"%s","rootDir":".","scriptExtensions":[".gs"]}' "$NBA_SCRIPT_ID" > "$RUNNER_TEMP/$d/.clasp.json"; done
+          clasp --project "$RUNNER_TEMP/head/.clasp.json" pull > /dev/null
+          clasp --project "$RUNNER_TEMP/version/.clasp.json" pull --versionNumber "$LIVE" > /dev/null
+          node deploy/deploy.cjs compare "$RUNNER_TEMP/head" "$RUNNER_TEMP/expected" "Live HEAD (what background loads run)"
+          node deploy/deploy.cjs compare "$RUNNER_TEMP/version" "$RUNNER_TEMP/expected" "Web app version $LIVE"
+
+      - name: Record the missing tag for the live version
+        if: inputs.mode != 'rollback' && steps.livecommit.outputs.tag_missing == 'true'
+        env:
+          LIVE: ${{ steps.live.outputs.live }}
+          COMMIT: ${{ steps.livecommit.outputs.commit }}
+        run: |
+          git tag "nba-v$LIVE" "$COMMIT"
+          git push origin "refs/tags/nba-v$LIVE"
+
+      - name: Deploy this commit as a new version
+        id: deploy
+        if: inputs.mode == 'deploy'
+        env:
+          NEXT: ${{ steps.live.outputs.next }}
+          DEPLOYMENT_ID: ${{ steps.live.outputs.deployment }}
+        run: |
+          set -e
+          git diff --quiet -- outputs || { echo "Stopped: outputs/ changed during the checks; nothing was pushed."; exit 1; }
+          BUILD=$(node deploy/deploy.cjs build-id outputs/NbaOddsLoader.gs)
+          DESC="Build $BUILD, commit ${GITHUB_SHA:0:7}, deploy button"
+          clasp push --force
+          clasp --json create-version "$DESC" > "$RUNNER_TEMP/version.json"
+          VERSION=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).versionNumber)' "$RUNNER_TEMP/version.json")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$VERSION" != "$NEXT" ]; then echo "Note: expected version $NEXT, Google created $VERSION."; fi
+          clasp --json update-deployment "$DEPLOYMENT_ID" --versionNumber "$VERSION" --description "$DESC" > /dev/null
+          echo "Pushed, created version $VERSION, and moved the web app to it."
+
+      - name: Roll back to an earlier version
+        id: rollback
+        if: inputs.mode == 'rollback'
+        env:
+          TARGET: ${{ inputs.rollback_version }}
+          DEPLOYMENT_ID: ${{ steps.live.outputs.deployment }}
+        run: |
+          set -e
+          TAG="nba-v$TARGET"
+          git fetch --tags --quiet
+          git rev-parse -q --verify "refs/tags/$TAG" > /dev/null || { echo "Stopped: there is no tag $TAG, so the source for version $TARGET is unknown."; exit 1; }
+          git checkout "$TAG" -- outputs/NbaOddsLoader.gs outputs/Mobile.html outputs/appsscript.json
+          clasp push --force
+          clasp --json update-deployment "$DEPLOYMENT_ID" --versionNumber "$TARGET" --description "Rollback to version $TARGET, deploy button" > /dev/null
+          echo "version=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-list -n 1 "$TAG")" >> "$GITHUB_OUTPUT"
+          echo "HEAD now runs the source of $TAG and the web app is on version $TARGET."
+
+      - name: Verify after the change
+        id: verify
+        if: inputs.mode != 'check'
+        env:
+          VERSION: ${{ steps.deploy.outputs.version || steps.rollback.outputs.version }}
+          COMMIT: ${{ steps.rollback.outputs.commit || github.sha }}
+          DEPLOYMENT_ID: ${{ steps.live.outputs.deployment }}
+          NBA_SCRIPT_ID: ${{ secrets.NBA_SCRIPT_ID }}
+        run: |
+          set -e
+          clasp --json list-deployments > "$RUNNER_TEMP/after.json"
+          NOW=$(node deploy/deploy.cjs live-version "$RUNNER_TEMP/after.json" "$DEPLOYMENT_ID")
+          [ "$NOW" = "$VERSION" ] || { echo "Stopped: the web app shows version $NOW, expected $VERSION."; exit 1; }
+          rm -rf "$RUNNER_TEMP/expected2" "$RUNNER_TEMP/head2" "$RUNNER_TEMP/version2"; mkdir -p "$RUNNER_TEMP/expected2" "$RUNNER_TEMP/head2" "$RUNNER_TEMP/version2"
+          for f in NbaOddsLoader.gs Mobile.html appsscript.json; do git show "$COMMIT:outputs/$f" > "$RUNNER_TEMP/expected2/$f"; done
+          for d in head2 version2; do printf '{"scriptId":"%s","rootDir":".","scriptExtensions":[".gs"]}' "$NBA_SCRIPT_ID" > "$RUNNER_TEMP/$d/.clasp.json"; done
+          clasp --project "$RUNNER_TEMP/head2/.clasp.json" pull > /dev/null
+          clasp --project "$RUNNER_TEMP/version2/.clasp.json" pull --versionNumber "$VERSION" > /dev/null
+          node deploy/deploy.cjs compare "$RUNNER_TEMP/head2" "$RUNNER_TEMP/expected2" "Live HEAD"
+          node deploy/deploy.cjs compare "$RUNNER_TEMP/version2" "$RUNNER_TEMP/expected2" "Web app version $VERSION"
+
+      - name: Tag the new version
+        if: inputs.mode == 'deploy'
+        env:
+          VERSION: ${{ steps.deploy.outputs.version }}
+        run: |
+          TAG="nba-v$VERSION"
+          git fetch --tags --quiet
+          if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
+            [ "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA" ] && { echo "$TAG already records this commit."; exit 0; }
+            echo "Stopped: $TAG already exists for a different commit; it was left unchanged."; exit 1
+          fi
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+
+      - name: Summary
+        if: always()
+        env:
+          MODE: ${{ inputs.mode }}
+          LIVE: ${{ steps.live.outputs.live }}
+          VERSION: ${{ steps.deploy.outputs.version || steps.rollback.outputs.version }}
+          RESTORED: ${{ steps.rollback.outputs.commit }}
+          OUTCOME: ${{ job.status }}
+          TOUCHED: ${{ steps.deploy.outcome == 'success' || steps.deploy.outcome == 'failure' || steps.rollback.outcome == 'success' || steps.rollback.outcome == 'failure' }}
+          VERIFIED: ${{ steps.verify.outcome == 'success' }}
+        run: |
+          BUILD=$(node deploy/deploy.cjs build-id outputs/NbaOddsLoader.gs 2> /dev/null || echo unknown)
+          {
+            echo "## NBA app: $MODE ($OUTCOME)"
+            if [ -n "$RESTORED" ]; then echo "- Restored source: tag \`nba-v$VERSION\` (commit \`${RESTORED:0:7}\`), build \`$BUILD\`"
+            else echo "- Commit: \`${GITHUB_SHA:0:7}\` on \`$GITHUB_REF_NAME\`, build \`$BUILD\`"; fi
+            [ -n "$LIVE" ] && echo "- Web app version before this run: $LIVE"
+            [ -n "$VERSION" ] && echo "- Web app version now: $VERSION"
+            if [ "$OUTCOME" = "success" ]; then :
+            elif [ "$TOUCHED" = "true" ] && [ "$VERIFIED" = "true" ]; then
+              echo "- The app change worked and was verified. Only a bookkeeping step after it failed; nothing needs rolling back."
+            elif [ "$TOUCHED" = "true" ]; then
+              echo "- **Something stopped partway.** Live code may no longer match the web app. Run this workflow again with mode **rollback**, rollback_version **$LIVE**, and confirm **deploy now**."
+            else
+              echo "- Stopped before anything changed. The live app is exactly as it was."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

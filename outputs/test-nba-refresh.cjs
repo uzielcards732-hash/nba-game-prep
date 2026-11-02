@@ -108,6 +108,7 @@ context.propsHeaders_ = () => ['one'];
 context.read_ = () => [];
 context.write_ = () => {};
 context.mergeProps_ = (_old, rows) => rows;
+context.replacePropsRows_ = () => ({removed: 0, added: 1});
 context.writeLatestNormalizedProps_ = () => {};
 context.normalizeOddsApiEvent_ = () => ({});
 context.recordOddsApiLineHistorySafely_ = () => {};
@@ -132,6 +133,7 @@ context.nbaRunFile_ = (_run, _kind, value) => {
   return savedRaw;
 };
 context.log_ = () => {};
+context.logRequired_ = () => {};
 context.oddsRequest_ = () => {
   paidCalls++;
   return {text: '{"id":"game-1"}', slot: {label: 'KEY 2'}, headers: {'x-requests-last': '5'}};
@@ -280,7 +282,7 @@ assert.match(mobile, /id="daily-games-status"/);
 assert.match(mobile, /Refresh games — free/);
 assert.match(mobile, /Refresh game odds — 3 credits/);
 assert.match(mobile, /mobileOperationStatus\(id\)/);
-assert.match(mobile, /statusMissingCount>=15/);
+assert.match(mobile, /if\(stopWaitingForMissingRun\(status,id\)\)return;state\.statusMissingCount\+\+;if\(state\.statusMissingCount>=45\)/);
 assert.match(mobile, /forgetRunId\(\);stopOperationTimers\(\);loadDashboard\(\)/);
 assert.match(mobile, /function researchWorkflow_\(\).*offense-versus-defense and coaching case/);
 assert.match(mobile, /Unders are exceptional, not banned/);

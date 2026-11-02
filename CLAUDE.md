@@ -58,7 +58,12 @@ Run from the repo root; all are offline and mock only.
 - `node outputs/test-nba-trigger-repair.cjs`
 - `node outputs/test-nba-dates.cjs`
 - `node outputs/test-nba-recommendations.cjs`
+- `node outputs/test-nba-phase1.cjs` (Phase 1: paid request fixes F1 to F8,
+  safe LOG writes, the 160 credit nightly cap, stuck spinner)
+- `node outputs/test-nba-speed.cjs` (in place row replacement)
+- `node deploy/test.cjs` (GitHub deploy button checks)
 
-`outputs/test-loader.cjs` is an NFL suite copied at project creation. It is
-not an NBA suite and fails on its first test (NFL roster constants are absent
-from NBA source). Do not count it; Phase 1 decides whether to delete it.
+`outputs/nba-mock-env.cjs` is the shared offline mock of Sheets, Drive,
+Script Properties, triggers, UrlFetch and the key library used by the Phase 1
+and speed suites. Setting `NBA_SOURCE=<file>` runs a suite against another
+copy of the loader, for example the live version, to prove a test fails there.

@@ -2,6 +2,53 @@
 
 ## Current state
 
+**Phase 1 reliability, speed, deploy button (2026-11-02, cloud session,
+branch `claude/phase1-reliability`, build `2026.11.02-nba-reliability.1`,
+LOCAL ONLY, NOT DEPLOYED; live stays version 13):**
+
+- Paid request fixes ported from NFL F1 to F8. F1: a failed shared ledger
+  write after a paid response no longer throws the response away; it is saved,
+  committed, and the ledger write is retried under the same reservation ID
+  (the library replays SETTLED rows, so never two charges). F2: settlement
+  sweep at every worker start and before the receipt; the receipt lists
+  anything still pending. F3: saved response pointers `NBA_LAST_RAW_<kind>_<event>`
+  let a later plan reuse a paid response within 90 minutes of capture (same
+  event, markets, bookmaker; force refresh ignores it). F4: started games are
+  excluded from the plan at 0 credits; an all started confirm is refused. F5:
+  "Export saved, but no game is eligible for analysis" result text. F6: safe
+  error categories (service, step, error class; never native text). F7: one
+  bad load step is marked FAILED and the run continues to a PARTIAL export.
+  F8: `nbaOperationRecordsPruneDryRun()` lists old records, never deletes.
+- Safe LOG writes: `log_` never fails a load (count marker
+  `NBA_LOG_WRITE_FAILED`); PLANNED rows use `logRequired_`, so nothing is
+  reserved or sent without its expected cost recorded.
+- Nightly cap 160 credits per Eastern date (`NBA_NIGHT_CREDITS_<date>`),
+  owner set 2026-11-02. Shown on the review screen; over cap loads and game
+  odds refreshes are refused before any request.
+- Speed: `replaceRows_` for PROPS, ALT_PROPS and NBA_PROPS; LINE_HISTORY
+  dedupe reads only the ID column; the duplicate second history pass is
+  dropped; unchanged run checkpoints are not rewritten; receipts carry
+  `timings`. Mock measure: load stage cells touched 1,055,592 to 41,117
+  (41,117 / 1,055,592 = 3.9%), tabs byte identical.
+- Stuck spinner: the phone shows the real error 15 seconds after a request
+  that never started, and stops waiting after 2 minutes for a saved run ID the
+  server has no record of.
+- Deploy button: `.github/workflows/deploy-nba.yml`, `deploy/deploy.cjs`,
+  `deploy/test.cjs`, `docs/DEPLOY_BUTTON.md`. Needs owner secrets
+  `CLASPRC_JSON` and `NBA_SCRIPT_ID`. First `check` needs live_commit
+  `140074aaafddf4039af20a624c9c7616ef50e982` to record tag `nba-v13`.
+- Removed the copied NFL `outputs/test-loader.cjs`. Test mocks updated in
+  three existing suites (build pin, mocks for the new cap and `logRequired_`,
+  polling assertion now checks the new stop logic).
+- Offline: 10 suites pass (7 existing, `test-nba-phase1.cjs` 25,
+  `test-nba-speed.cjs` 5, `deploy/test.cjs` 11). Against the live v13 source,
+  22 of 22 server side Phase 1 tests fail, so they test real changes.
+- Credits: building and testing used 0. Running it adds 0 credits per load;
+  F3 can only save credits. The cap limits the worst month to
+  160 x 30 = 4,800.
+- Next: owner adds the two secrets, runs `check`, says "deploy now", then one
+  supervised paid test (one game, standard only, maximum 5 credits).
+
 **Phase 0 baseline (2026-11-02, cloud session, free checks only, branch
 `claude/phase0-baseline`, pushed to GitHub 2026-11-02 on owner OK, not merged, nothing deployed):**
 
@@ -241,3 +288,8 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Seven NBA offline suites pass; the copied NFL `test-loader.cjs` fails and is not an NBA suite.
 - 2026-11-02: Inventoried markets, costs and triggers; added CLAUDE.md and AGENTS.md standing sections modeled on NFL.
 - 2026-11-02: Zero provider calls, emails, pushes or deployments; NFL untouched. Local branch only.
+- 2026-11-02: Phase 1 built on `claude/phase1-reliability`: NFL F1 to F8 ported, safe LOG writes, 160 credit nightly cap, in place row replacement, receipt timings, stuck spinner fix.
+- 2026-11-02: Added the NBA deploy button (check, deploy, rollback) with byte match checks and an NBA only library pin guard; needs CLASPRC_JSON and NBA_SCRIPT_ID secrets.
+- 2026-11-02: New suites test-nba-phase1 (25) and test-nba-speed (5) plus deploy/test (11); all 10 suites pass; 22 server side tests fail on live v13 as expected.
+- 2026-11-02: Removed the copied NFL test-loader.cjs; adjusted three existing suites' mocks for the new cap, required PLANNED log and build.
+- 2026-11-02: Zero provider calls, emails or deployments; NFL untouched. Local branch only until the owner approves a push.

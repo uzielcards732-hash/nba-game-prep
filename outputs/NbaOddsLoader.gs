@@ -76,7 +76,7 @@ const SLATES = [];
 // These properties belong only to the separate NBA Script project.
 const MOBILE_SPREADSHEET_ID_PROPERTY = 'NBA_MOBILE_SPREADSHEET_ID';
 const MOBILE_WEB_TITLE = 'NBA Game Prep';
-const MOBILE_APP_BUILD = '2026.10.22-nba-team-labels.1';
+const MOBILE_APP_BUILD = '2026.11.02-nba-reliability.1';
 const MOBILE_EXPORT_FOLDER_PROPERTY = 'NBA_MOBILE_EXPORT_FOLDER_ID';
 const MOBILE_EXPORT_FOLDER_NAME = 'NBA Game Prep Analysis Exports';
 const MOBILE_LAST_EXPORT_PROPERTY = 'NBA_MOBILE_LAST_EXPORT';
@@ -135,8 +135,12 @@ function nbaSharedCall_(action,data,admin) {
     return admin?SharedNFL.admin(action,data||{}):SharedNFL.runtime(action,data||{});
   } catch(error) {
     if(error&&error.loaderSafe)throw error;
-    if(error&&error.sharedSafe)fail_(error.message);
-    fail_('The shared key pool is unavailable. No request was sent; no local-key fallback was used.');
+    // After a paid request was sent, the library's busy wording ("No request
+    // was sent") is wrong. Say what is true; the saved response is kept.
+    if(error&&error.sharedSafe&&['response','unknown'].includes(action)&&/No request was sent/.test(error.message))failService_('LIBRARY','Ledger update pending; the request was sent and its saved response is kept. No paid retry.');
+    if(error&&error.sharedSafe)failService_('LIBRARY',error.message);
+    if(['response','unknown'].includes(action))failService_('LIBRARY','Ledger update pending; the request was sent and its saved response is kept. No paid retry.');
+    failService_('LIBRARY','The shared key pool is unavailable. No request was sent; no local-key fallback was used.');
   }
 }
 function nbaSharedKeyView_() {
@@ -229,7 +233,43 @@ function write_(name,headers,rows) {
   s.setFrozenRows(1);
 }
 function cell_(v) { return typeof v==='string' && /^[=+@\-]/.test(v)?"'"+v:v; }
+// Replace one game's rows without rewriting the whole tab: read only the
+// columns the match needs, append the new rows, then delete the replaced rows
+// bottom-up in contiguous blocks. The result equals rewriting
+// old.filter(row=>!isReplaced(row)).concat(newRows), with far less Sheets I/O
+// as the tabs grow. isReplaced sees a sparse row holding only keyCols.
+function replaceRows_(name,headers,keyCols,isReplaced,newRows) {
+  const s=sheet_(name);
+  s.getRange(1,1,1,headers.length).setValues([headers]).setFontWeight('bold');s.setFrozenRows(1);
+  const last=s.getLastRow(),count=Math.max(0,last-1),cols={},drop=[];
+  if(count)keyCols.forEach(c=>{cols[c]=s.getRange(2,c+1,count,1).getValues();});
+  for(let i=0;i<count;i++){const row=[];keyCols.forEach(c=>{row[c]=cols[c][i][0];});if(isReplaced(row))drop.push(i+2);}
+  if(newRows.length)s.getRange(last+1,1,newRows.length,headers.length).setValues(newRows.map(r=>r.map(cell_)));
+  // Sheets refuses to delete every unfrozen row; an emptied tab is cleared instead.
+  if(count&&drop.length===count&&!newRows.length){s.getRange(2,1,count,headers.length).clearContent();return {removed:count,added:0};}
+  for(let i=drop.length-1;i>=0;){let n=1;while(i-n>=0&&drop[i-n]===drop[i]-n)n++;s.deleteRows(drop[i]-n+1,n);i-=n;}
+  return {removed:drop.length,added:newRows.length};
+}
+// LOG is an audit trail, not a gate, once a paid request has been sent: a LOG
+// write failure must never discard paid data or fail the load. The PLANNED row
+// before a send is the one exception and uses logRequired_, so a request is
+// never sent without its expected cost recorded.
+const LOG_WRITE_FAILED_PROPERTY='NBA_LOG_WRITE_FAILED';
 function log_(action,event,result,detail,cost,used,remaining) {
+  try{logRequired_(action,event,result,detail,cost,used,remaining);return true;}
+  catch(ignore){noteLogWriteFailure_(action);return false;}
+}
+function logWriteWarning_() {try{return JSON.parse(PropertiesService.getScriptProperties().getProperty(LOG_WRITE_FAILED_PROPERTY)||'null');}catch(ignore){return null;}}
+function noteLogWriteFailure_(action) {
+  // Only a count, times and our own action label; never the native error text.
+  try{
+    const p=PropertiesService.getScriptProperties();let m=null;try{m=JSON.parse(p.getProperty(LOG_WRITE_FAILED_PROPERTY)||'null');}catch(ignore){}
+    const time=now_();m=m&&typeof m==='object'?m:{count:0,first_utc:time};
+    m.count=(Number(m.count)||0)+1;m.last_utc=time;m.last_action=String(action||'').slice(0,60);
+    p.setProperty(LOG_WRITE_FAILED_PROPERTY,JSON.stringify(m));
+  }catch(ignore){}
+}
+function logRequired_(action,event,result,detail,cost,used,remaining) {
   const s=sheet_('LOG');
   if(s.getLastRow()<=1) s.getRange(1,1,1,LOG_HEADERS.length).setValues([LOG_HEADERS]);
   s.appendRow([now_(),action,event||'',result,detail,cost===undefined?'UNKNOWN':cost,used===undefined?'':used,remaining===undefined?'':remaining]);
@@ -627,13 +667,18 @@ function nbaAlternateCacheFresh_(eventId,rows,now) {
 function mobilePropsPlan_(forceRefresh,includeAlternateProps) {
   const now=Date.now(),games=requireGames_(),force=forceRefresh===true,includeAlternates=includeAlternateProps===true;
   const standardRows=read_(TAB_PROPS,propsHeaders_().length),alternateRows=includeAlternates?read_(TAB_ALT_PROPS,ALT_PROPS_HEADERS.length):[];
-  const reusable=[],toLoad=[],alternateReusable=[],alternateToLoad=[];
+  const reusable=[],toLoad=[],alternateReusable=[],alternateToLoad=[],started=[];
   games.forEach(g=>{
-    const fresh=nbaStandardCacheFresh_(g.id,standardRows,now);
-    (fresh&&!force?reusable:toLoad).push({event_id:g.id,matchup:g.matchup,kickoff_utc:mobileDateValue_(g.kickoff),props_updated_utc:mobileDateValue_(g.propsUpdated),reason:fresh&&!force?'Props are under '+SLATE_FRESHNESS_MINUTES+' minutes old.':force?'Force refresh selected.':'Props are missing or older than '+SLATE_FRESHNESS_MINUTES+' minutes.'});
+    // A started game cannot be loaded: it costs nothing and is never requested.
+    const kickoff=Date.parse(mobileDateValue_(g.kickoff));
+    if(Number.isFinite(kickoff)&&kickoff<=now){started.push({event_id:g.id,matchup:g.matchup,kickoff_utc:mobileDateValue_(g.kickoff),reason:'Started — not loadable, 0 credits.'});return;}
+    const fresh=nbaStandardCacheFresh_(g.id,standardRows,now),saved=!fresh&&!force?nbaSavedResponsePointer_('standard',g.id,now):null;
+    if(saved){reusable.push({event_id:g.id,matchup:g.matchup,kickoff_utc:mobileDateValue_(g.kickoff),props_updated_utc:mobileDateValue_(g.propsUpdated),reason:'Reused saved response — 0 credits.',reuse_saved_response:{run_id:saved.run_id,captured_utc:saved.captured_utc}});}
+    else (fresh&&!force?reusable:toLoad).push({event_id:g.id,matchup:g.matchup,kickoff_utc:mobileDateValue_(g.kickoff),props_updated_utc:mobileDateValue_(g.propsUpdated),reason:fresh&&!force?'Props are under '+SLATE_FRESHNESS_MINUTES+' minutes old.':force?'Force refresh selected.':'Props are missing or older than '+SLATE_FRESHNESS_MINUTES+' minutes.'});
     if(includeAlternates) {
-      const alternateUpdated=altPropsUpdatedForEvent_(g.id),alternateFresh=nbaAlternateCacheFresh_(g.id,alternateRows,now);
-      (alternateFresh&&!force?alternateReusable:alternateToLoad).push({event_id:g.id,matchup:g.matchup,alternate_props_updated_utc:alternateUpdated,reason:alternateFresh&&!force?'Alternate props are under '+SLATE_FRESHNESS_MINUTES+' minutes old.':force?'Force refresh selected.':'Alternate props are missing or older than '+SLATE_FRESHNESS_MINUTES+' minutes.'});
+      const alternateUpdated=altPropsUpdatedForEvent_(g.id),alternateFresh=nbaAlternateCacheFresh_(g.id,alternateRows,now),alternateSaved=!alternateFresh&&!force?nbaSavedResponsePointer_('alternate',g.id,now):null;
+      if(alternateSaved)alternateReusable.push({event_id:g.id,matchup:g.matchup,alternate_props_updated_utc:alternateUpdated,reason:'Reused saved response — 0 credits.',reuse_saved_response:{run_id:alternateSaved.run_id,captured_utc:alternateSaved.captured_utc}});
+      else (alternateFresh&&!force?alternateReusable:alternateToLoad).push({event_id:g.id,matchup:g.matchup,alternate_props_updated_utc:alternateUpdated,reason:alternateFresh&&!force?'Alternate props are under '+SLATE_FRESHNESS_MINUTES+' minutes old.':force?'Force refresh selected.':'Alternate props are missing or older than '+SLATE_FRESHNESS_MINUTES+' minutes.'});
     }
   });
   const ids=games.map(g=>g.id);
@@ -642,8 +687,108 @@ function mobilePropsPlan_(forceRefresh,includeAlternateProps) {
     include_alternate_props:includeAlternates,alternate_reusable_props:alternateReusable,alternate_games_requiring_refresh:alternateToLoad,
     alternate_markets:MOBILE_ALTERNATE_MARKETS.slice(),max_alternate_prop_credits:alternateToLoad.length*MOBILE_ALTERNATE_MARKETS.length,
     max_total_odds_api_credits:toLoad.length*PROP_MARKETS.length+alternateToLoad.length*MOBILE_ALTERNATE_MARKETS.length,
+    started_games:started,night_cap:nbaNightView_(),
     roster_validation:'NBA player-team enrichment is not included in this load. Live research must confirm unresolved player identity.',no_automatic_paid_retries:true,
-    sports_game_odds:sportsGameOddsMobilePlan_(games,force)};
+    sports_game_odds:sportsGameOddsMobilePlan_(games.filter(g=>!started.some(s=>s.event_id===g.id)),force)};
+}
+// -----------------------------------------------------------------------------
+// Nightly credit cap. Every paid Odds API request counts its expected cost
+// against tonight's cap (Eastern calendar date) before anything is sent, and
+// the count moves to the actual charge once x-requests-last is known. An
+// unconfirmed outcome keeps its expected cost: the cap over-counts, never
+// under-counts.
+const NBA_NIGHT_CAP_CREDITS=160;
+const NBA_NIGHT_CREDITS_PREFIX='NBA_NIGHT_CREDITS_';
+function nbaNightKey_(ms) {return NBA_NIGHT_CREDITS_PREFIX+Utilities.formatDate(new Date(ms===undefined?Date.now():ms),'America/New_York','yyyy-MM-dd');}
+function nbaNightRead_(key) {
+  let value=null;try{value=JSON.parse(PropertiesService.getScriptProperties().getProperty(key)||'null');}catch(ignore){value=null;}
+  return value&&typeof value==='object'&&Number.isFinite(value.counted)?value:{counted:0,requests:0};
+}
+function nbaNightView_() {
+  const key=nbaNightKey_(),value=nbaNightRead_(key);
+  return {night_et:key.slice(NBA_NIGHT_CREDITS_PREFIX.length),cap:NBA_NIGHT_CAP_CREDITS,counted:value.counted,remaining:Math.max(0,NBA_NIGHT_CAP_CREDITS-value.counted)};
+}
+function nbaNightReserve_(expected) {
+  const key=nbaNightKey_(),value=nbaNightRead_(key);
+  if(value.counted+expected>NBA_NIGHT_CAP_CREDITS)failNotSent_('Tonight\'s '+NBA_NIGHT_CAP_CREDITS+'-credit cap would be exceeded ('+value.counted+' counted + '+expected+' requested = '+(value.counted+expected)+'). No request was sent.');
+  const first=value.requests===0;value.counted+=expected;value.requests++;value.updated_utc=now_();
+  try{PropertiesService.getScriptProperties().setProperty(key,JSON.stringify(value));}
+  catch(e){failNotSent_('Tonight\'s credit count could not be recorded, so no request was sent.');}
+  if(first)nbaNightPrune_(key);
+  return {key:key,expected:expected};
+}
+function nbaNightSettle_(ticket,actual) {
+  if(!ticket||actual===null||!Number.isFinite(actual)||actual===ticket.expected)return;
+  try{const value=nbaNightRead_(ticket.key);value.counted=Math.max(0,value.counted+actual-ticket.expected);value.updated_utc=now_();PropertiesService.getScriptProperties().setProperty(ticket.key,JSON.stringify(value));}
+  catch(ignore){/* Keeping the expected cost over-counts, which is the safe direction. */}
+}
+function nbaNightPrune_(currentKey) {
+  try{
+    const properties=PropertiesService.getScriptProperties(),cutoff=nbaNightKey_(Date.now()-14*24*60*60*1000);
+    Object.keys(properties.getProperties()).filter(k=>k.indexOf(NBA_NIGHT_CREDITS_PREFIX)===0&&k!==currentKey&&k<cutoff).forEach(k=>properties.deleteProperty(k));
+  }catch(ignore){}
+}
+// -----------------------------------------------------------------------------
+// Cross-run reuse of saved paid responses. After a raw response is saved, a
+// small pointer records where it is. Within 90 minutes of the original capture
+// and only for the same event, markets and bookmaker, a later plan replays
+// that file instead of buying it again.
+const NBA_SAVED_RESPONSE_PREFIX='NBA_LAST_RAW_';
+function nbaSavedResponseMarkets_(kind) {return (kind==='alternate'?MOBILE_ALTERNATE_MARKETS:PROP_MARKETS).slice();}
+function nbaSaveResponsePointer_(runId,kind,eventId,capturedUtc) {
+  try{PropertiesService.getScriptProperties().setProperty(NBA_SAVED_RESPONSE_PREFIX+kind+'_'+eventId,JSON.stringify({run_id:runId,kind:kind,event_id:eventId,captured_utc:capturedUtc,markets:nbaSavedResponseMarkets_(kind),bookmaker:BOOK}));}
+  catch(ignore){/* Reuse is an optimization; a missing pointer only means no reuse. */}
+}
+function nbaSavedResponsePointer_(kind,eventId,nowMs) {
+  let pointer=null;try{pointer=JSON.parse(PropertiesService.getScriptProperties().getProperty(NBA_SAVED_RESPONSE_PREFIX+kind+'_'+eventId)||'null');}catch(ignore){return null;}
+  if(!pointer||pointer.kind!==kind||String(pointer.event_id)!==String(eventId)||pointer.bookmaker!==BOOK)return null;
+  if(JSON.stringify(pointer.markets)!==JSON.stringify(nbaSavedResponseMarkets_(kind)))return null;
+  const age=nowMs-Date.parse(pointer.captured_utc||'');
+  return Number.isFinite(age)&&age>=0&&age<SLATE_FRESHNESS_MINUTES*60000?pointer:null;
+}
+// -----------------------------------------------------------------------------
+// Shared ledger settlement. When the free ledger write fails after a paid
+// response arrived, the response is kept and the write is retried later under
+// the same reservation ID. The library replays an already SETTLED row without a
+// second charge, and no paid request is ever repeated.
+const NBA_LEDGER_PENDING_PREFIX='NBA_LEDGER_PENDING_';
+function nbaSafeHeaders_(headers) {
+  const out={};['x-requests-last','x-requests-used','x-requests-remaining'].forEach(k=>{const v=header_(headers||{},k);if(v!==undefined&&v!==null&&v!=='')out[k]=v;});return out;
+}
+function nbaLedgerPendingSave_(reservationId,code,safeHeaders,label,eventId) {
+  try{PropertiesService.getScriptProperties().setProperty(NBA_LEDGER_PENDING_PREFIX+reservationId,JSON.stringify({reservation_id:reservationId,http_code:code,headers:safeHeaders,label:String(label||'').slice(0,40),event_id:String(eventId||''),created_utc:now_()}));return true;}
+  catch(ignore){return false;}
+}
+function nbaLedgerSettleOne_(reservationId,code,safeHeaders) {
+  const result=nbaSharedCall_('response',{reservation_id:reservationId,http_code:code,headers:safeHeaders||{}});
+  try{PropertiesService.getScriptProperties().deleteProperty(NBA_LEDGER_PENDING_PREFIX+reservationId);}catch(ignore){}
+  return result&&result.state==='SETTLED'?'SETTLED':'UNKNOWN';
+}
+// Settles every pending ledger write: the global pending records, then the
+// run's own journal entries (the backup when the pending record itself could
+// not be saved). Returns what is still pending; never throws.
+function nbaLedgerSweep_(state,job) {
+  const out={settled:0,pending:[]},done={};
+  let all={};try{all=PropertiesService.getScriptProperties().getProperties()||{};}catch(ignore){}
+  Object.keys(all).filter(k=>k.indexOf(NBA_LEDGER_PENDING_PREFIX)===0).forEach(k=>{
+    let record=null;try{record=JSON.parse(all[k]);}catch(ignore){}
+    if(!record||!record.reservation_id){out.pending.push(k.slice(NBA_LEDGER_PENDING_PREFIX.length));return;}
+    try{nbaLedgerSettleOne_(record.reservation_id,record.http_code,record.headers);done[record.reservation_id]=true;out.settled++;}
+    catch(ignore){out.pending.push(record.reservation_id);}
+  });
+  if(state&&job){
+    nbaLoadSteps_(job).forEach(step=>{
+      let op=null;try{op=nbaOperation_(state.run_id,step.kind,step.event_id);}catch(ignore){}
+      if(!op||op.ledger_state!=='SETTLEMENT_PENDING'||!op.reservation_id)return;
+      if(!done[op.reservation_id]){
+        if(out.pending.indexOf(op.reservation_id)>=0)return;
+        try{nbaLedgerSettleOne_(op.reservation_id,op.http_code,op.safe_headers);out.settled++;}
+        catch(ignore){out.pending.push(op.reservation_id);return;}
+      }
+      op.ledger_state='SETTLED';try{nbaOperation_(state.run_id,step.kind,step.event_id,op);}catch(ignore){}
+    });
+  }
+  return out;
 }
 function mobileLoadPlan(forceRefresh,includeAlternateProps) { return mobilePropsPlan_(forceRefresh===true,includeAlternateProps===true); }
 function mobileAssertPlan_(plan) {
@@ -662,14 +807,15 @@ function loadPropsForGames_(games,onProgress,preparedRoster) {
     try {
       if(onProgress)onProgress(g);
       const expected=PROP_MARKETS.length;
-      log_('Mobile props',g.id,'PLANNED','Expected '+expected+' credits; no automatic paid retry.',expected);
+      logRequired_('Mobile props',g.id,'PLANNED','Expected '+expected+' credits; no automatic paid retry.',expected);
       const response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(g.id)+'/odds','bookmakers='+BOOK+'&markets='+PROP_MARKETS.join(',')+'&oddsFormat=american',true,g.id,expected),payload=json_(response,'Odds');
       charges.push({event_id:g.id,key_slot:response.slot?response.slot.label:'',actual_credits:numberHeader_(response.headers,'x-requests-last')});
       const time=now_(),rows=propsRows_(g,payload,roster,time);
-      write_(TAB_PROPS,propsHeaders_(),mergeProps_(read_(TAB_PROPS,propsHeaders_().length),rows,g));
-      try { writeLatestNormalizedProps_(normalizeOddsApiEvent_(payload,BOOK),g.id,'mobile_odds_api_refresh'); }
+      replacePropsRows_(rows,g);
+      let mirrored=false;
+      try { writeLatestNormalizedProps_(normalizeOddsApiEvent_(payload,BOOK),g.id,'mobile_odds_api_refresh');mirrored=true; }
       catch(normalizeError) { log_('NBA_PROPS',g.id,'ERROR','Odds API props loaded but normalized mirror was not updated: '+safeError_(normalizeError),0); }
-      recordOddsApiLineHistorySafely_(payload,'mobile_props_refresh',g.id);
+      if(!mirrored)recordOddsApiLineHistorySafely_(payload,'mobile_props_refresh',g.id);
       const idx=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length),i=idx.findIndex(r=>r[0]===g.id);
       if(i>=0)sheet_(TAB_INDEX).getRange(i+2,IDX.PROPS_UPDATED+1).setValue(time);
       log_('Mobile props',g.id,'SUCCESS',rows.length+' rows; '+rows.filter(r=>r[38]!=='MATCHED').length+' unresolved joins',0);successes++;
@@ -685,13 +831,16 @@ function mobileRefreshScheduleAndOdds(approvedCredits,requestId) {
   return run_('Mobile schedule and odds',()=>{
     const staged=nbaStageState_();
     if(staged&&staged.state==='RUNNING')fail_('An NBA export is running. Wait for it before refreshing game odds. No credits were spent.');
+    try{nbaLedgerSweep_(null,null);}catch(ignore){}
+    const night=nbaNightView_();
+    if(night.remaining<3)fail_('Tonight\'s '+night.cap+'-credit cap has '+night.remaining+' left; game odds need 3. No request was sent.');
     const run=mobileBeginRun_('schedule_and_odds',[],requestId);
     try {
       mobileUpdateRun_(run,'refreshing_schedule','Refreshing the NBA schedule.');
       refreshIndexCore_(); // free events refresh; preserves current checkboxes for matching events
       const rows=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length);if(!rows.length)fail_('INDEX has no games after refresh.');
       mobileUpdateRun_(run,'loading_game_odds','Loading game lines.');
-      log_('Mobile schedule and odds','','PLANNED','Expected 3 credits for h2h, spreads, totals; no automatic paid retry.',3);
+      logRequired_('Mobile schedule and odds','','PLANNED','Expected 3 credits for h2h, spreads, totals; no automatic paid retry.',3);
       const data=odds_('/sports/'+SPORT+'/odds','bookmakers='+BOOK+'&markets=h2h,spreads,totals&oddsFormat=american',true,'',3,run.id,'game-lines');
       if(!Array.isArray(data))fail_('Invalid game lines response.');
       rows.forEach(r=>{try{
@@ -754,6 +903,33 @@ function pruneMobileExportRuns_() {
     try { const saved=JSON.parse(all[key]);if(Date.parse(saved.created_utc)<cutoff)properties.deleteProperty(key); }
     catch(ignore) {} // Keep unreadable records fail-closed rather than forgetting a paid request.
   });
+}
+// Lists old run records that would be safe to remove. DRY RUN ONLY: this never
+// deletes. Kept: anything newer than 14 days, the active run, unreadable
+// records, unresolved or unknown charges, and pending ledger writes.
+function nbaOperationRecordsPruneDryRun() {const result=nbaOperationRecordsPrunePlan_(Date.now());console.log(JSON.stringify({would_delete:result.would_delete.length,kept_runs:result.kept_runs.length,deleted:0}));return result;}
+function nbaOperationRecordsPrunePlan_(now) {
+  const all=PropertiesService.getScriptProperties().getProperties(),cutoff=now-14*24*60*60*1000,runs={},wouldDelete=[],kept=[];
+  Object.keys(all).forEach(key=>{
+    if(key.indexOf(NBA_STAGE_OPERATION_PREFIX)!==0)return;
+    const rest=key.slice(NBA_STAGE_OPERATION_PREFIX.length),m=/^(.+)_(standard|alternate)_([A-Za-z0-9_-]+)$/.exec(rest);
+    const run=m?m[1]:'UNPARSED:'+rest,record={key:key};try{record.value=JSON.parse(all[key]);}catch(ignore){record.unreadable=true;}
+    (runs[run]||(runs[run]=[])).push(record);
+  });
+  let active='';try{const s=JSON.parse(all[NBA_STAGE_STATE_PROPERTY]||'null');if(s&&s.state==='RUNNING')active=s.run_id;}catch(ignore){}
+  const pendingLedger=Object.keys(all).filter(k=>k.indexOf(NBA_LEDGER_PENDING_PREFIX)===0).map(k=>k.slice(NBA_LEDGER_PENDING_PREFIX.length));
+  Object.keys(runs).sort().forEach(run=>{
+    const records=runs[run],keep=reason=>kept.push({run_id:run,reason:reason});
+    if(run.indexOf('UNPARSED:')===0||records.some(r=>r.unreadable))return keep('UNREADABLE_RECORD');
+    if(run===active)return keep('ACTIVE_RUN');
+    const times=records.map(r=>Date.parse(r.value.committed_utc||r.value.response_saved_utc||r.value.started_utc));
+    if(!times.length||times.some(t=>!Number.isFinite(t)))return keep('NO_TIMESTAMP');
+    if(Math.max.apply(null,times)>=cutoff)return keep('NEWER_THAN_14_DAYS');
+    if(records.some(r=>r.value.ledger_state==='SETTLEMENT_PENDING'||pendingLedger.indexOf(r.value.reservation_id)>=0))return keep('LEDGER_NOT_SETTLED');
+    if(records.some(r=>['COMMITTED','NOT_SENT'].indexOf(r.value.status)<0&&!(r.value.reused_from&&r.value.status==='FAILED')))return keep('UNRESOLVED_OR_UNKNOWN_CHARGE');
+    records.forEach(r=>wouldDelete.push(r.key));
+  });
+  return {dry_run:true,deleted:0,provider_requests:0,cutoff_utc:new Date(cutoff).toISOString(),would_delete:wouldDelete,kept_runs:kept,live_deletion:'Not available. Removal requires a separate owner approval.'};
 }
 function nbaStageState_() {
   const raw=PropertiesService.getScriptProperties().getProperty(NBA_STAGE_STATE_PROPERTY);
@@ -819,14 +995,35 @@ function nbaBackgroundTriggerCheckStatus() {
   const result={status:check.status,started_utc:check.started_utc||null,completed_utc:check.completed_utc||null,provider_calls:0};
   console.log(JSON.stringify(result));return result;
 }
+// Text of each run file as last read or written in this execution, so an
+// unchanged checkpoint is not rewritten after every step.
+const nbaRunFileText_={};
 function nbaRunFile_(runId,kind,value) {
-  const name='nba_run_'+runId+'_'+kind+'.json',folder=analysisExportFolder_(),files=folder.getFilesByName(name),matches=[];
+  const name='nba_run_'+runId+'_'+kind+'.json';
+  if(value!==undefined&&nbaRunFileText_[name]===JSON.stringify(value))return value;
+  const folder=analysisExportFolder_(),files=folder.getFilesByName(name),matches=[];
   while(files.hasNext())matches.push(files.next());
   if(matches.length>1)fail_('Duplicate saved NBA run files require owner review.');
-  if(value===undefined){if(!matches.length)return null;try{return JSON.parse(matches[0].getBlob().getDataAsString());}catch(ignore){fail_('Saved NBA run file cannot be read.');}}
-  if(matches.length)matches[0].setContent(JSON.stringify(value));else folder.createFile(name,JSON.stringify(value),MimeType.PLAIN_TEXT);
+  if(value===undefined){if(!matches.length)return null;let text;try{text=matches[0].getBlob().getDataAsString();}catch(e){throw tagService_(e,'DRIVE');}try{const parsed=JSON.parse(text);nbaRunFileText_[name]=text;return parsed;}catch(ignore){fail_('Saved NBA run file cannot be read.');}}
+  const text=JSON.stringify(value);
+  try{if(matches.length)matches[0].setContent(text);else folder.createFile(name,text,MimeType.PLAIN_TEXT);}catch(e){delete nbaRunFileText_[name];throw tagService_(e,'DRIVE');}
+  nbaRunFileText_[name]=text;
   return value;
 }
+// A paid response is saved before anything is parsed. Drive can report an
+// error after the file was written, so a failed save is checked and written
+// once more (free; the paid request is never repeated). Returns false only
+// when no exact copy could be confirmed.
+function nbaSaveRawResponse_(runId,rawKind,saved) {
+  for(let attempt=0;attempt<2;attempt++){
+    try{nbaRunFile_(runId,rawKind,saved);return true;}
+    catch(ignore){try{const back=nbaRunFile_(runId,rawKind);if(back&&JSON.stringify(back)===JSON.stringify(saved))return true;}catch(ignore2){}}
+  }
+  return false;
+}
+// Journal writes after a paid send must not lose the response; the raw file
+// and the ledger sweep recover a missed write.
+function nbaOperationSafe_(runId,kind,eventId,op) {try{nbaOperation_(runId,kind,eventId,op);return true;}catch(ignore){return false;}}
 function nbaOperationKey_(runId,kind,eventId) {return NBA_STAGE_OPERATION_PREFIX+runId+'_'+kind+'_'+eventId;}
 function nbaOperation_(runId,kind,eventId,value) {
   const properties=PropertiesService.getScriptProperties(),key=nbaOperationKey_(runId,kind,eventId);
@@ -834,54 +1031,87 @@ function nbaOperation_(runId,kind,eventId,value) {
   const raw=properties.getProperty(key);if(!raw)return null;try{return JSON.parse(raw);}catch(ignore){fail_('Saved paid-request receipt cannot be read; no retry was made.');}
 }
 function nbaLoadSteps_(job) {
-  const steps=[];job.items.forEach(item=>{if(item.standard_credits)steps.push({event_id:item.event_id,kind:'standard',credits:item.standard_credits});if(item.alternate_credits)steps.push({event_id:item.event_id,kind:'alternate',credits:item.alternate_credits});});return steps;
+  const steps=[];job.items.forEach(item=>{
+    if(item.standard_credits)steps.push({event_id:item.event_id,kind:'standard',credits:item.standard_credits});
+    else if(item.standard_reuse)steps.push({event_id:item.event_id,kind:'standard',credits:0,reuse:item.standard_reuse});
+    if(item.alternate_credits)steps.push({event_id:item.event_id,kind:'alternate',credits:item.alternate_credits});
+    else if(item.alternate_reuse)steps.push({event_id:item.event_id,kind:'alternate',credits:0,reuse:item.alternate_reuse});
+  });return steps;
 }
 function nbaRunCharges_(state,job) {
   return nbaLoadSteps_(job).map(step=>nbaOperation_(state.run_id,step.kind,step.event_id)).filter(op=>op&&op.response_saved===true).map(op=>({event_id:op.event_id,key_slot:op.key_slot||'',actual_credits:Number.isFinite(op.actual_credits)?op.actual_credits:null}));
 }
 function nbaPaidStep_(state,job,step,game) {
   const kind=step.kind,eventId=step.event_id,rawKind='raw_'+kind+'_'+eventId;
-  let op=nbaOperation_(state.run_id,kind,eventId),saved=nbaRunFile_(state.run_id,rawKind);
+  let op=nbaOperation_(state.run_id,kind,eventId),saved=null;
   if(op&&op.status==='COMMITTED')return 'SUCCESS';
-  if(!saved&&op){
-    op.status='UNKNOWN';op.message='The paid request was interrupted before its response could be confirmed. It was not retried.';
-    nbaOperation_(state.run_id,kind,eventId,op);job.warnings.push(game.matchup+': '+op.message);return 'UNKNOWN';
+  if(step.reuse){
+    // Replays a response another run already paid for; nothing is bought.
+    try{saved=nbaRunFile_(step.reuse.run_id,rawKind);}catch(ignore){saved=null;}
+    if(!saved||!saved.text){
+      op={status:'FAILED',event_id:eventId,kind:kind,expected_credits:0,reused_from:step.reuse.run_id,message:'The saved '+kind+' response is no longer available. It was not bought again; review the cost to load it.'};
+      nbaOperationSafe_(state.run_id,kind,eventId,op);job.warnings.push(game.matchup+': '+op.message);return 'FAILED';
+    }
+    if(!op){op={status:'RESPONSE_SAVED',event_id:eventId,kind:kind,expected_credits:0,reused_from:step.reuse.run_id,started_utc:now_()};nbaOperation_(state.run_id,kind,eventId,op);}
+  } else {
+    saved=nbaRunFile_(state.run_id,rawKind);
+    if(!saved&&op){
+      op.status='UNKNOWN';op.message='The paid request was interrupted before its response could be confirmed. It was not retried.';
+      nbaOperation_(state.run_id,kind,eventId,op);job.warnings.push(game.matchup+': '+op.message);return 'UNKNOWN';
+    }
   }
   if(!saved){
     op={status:'INTENT',event_id:eventId,kind:kind,expected_credits:step.credits,started_utc:now_()};
-    nbaOperation_(state.run_id,kind,eventId,op);
     const markets=kind==='standard'?PROP_MARKETS:MOBILE_ALTERNATE_MARKETS;
-    log_('NBA staged '+kind,eventId,'PLANNED','Expected '+step.credits+' credits; no automatic retry.',step.credits);
+    // The expected cost is recorded before anything is reserved or sent.
+    logRequired_('NBA staged '+kind,eventId,'PLANNED','Expected '+step.credits+' credits; no automatic retry.',step.credits);
+    nbaOperation_(state.run_id,kind,eventId,op);
+    let response;
     try {
-      const response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(eventId)+'/odds','bookmakers='+BOOK+'&markets='+markets.join(',')+'&oddsFormat=american',true,eventId,step.credits,state.run_id,kind+'-'+eventId);
-      saved={text:response.text,key_slot:response.slot?response.slot.label:'',actual_credits:numberHeader_(response.headers,'x-requests-last'),retrieved_utc:now_()};
-      nbaRunFile_(state.run_id,rawKind,saved); // Raw response precedes parsing or Sheet writes.
-      op.status='RESPONSE_SAVED';op.response_saved=true;op.key_slot=saved.key_slot;op.actual_credits=saved.actual_credits;op.response_saved_utc=saved.retrieved_utc;
-      nbaOperation_(state.run_id,kind,eventId,op);
+      response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(eventId)+'/odds','bookmakers='+BOOK+'&markets='+markets.join(',')+'&oddsFormat=american',true,eventId,step.credits,state.run_id,kind+'-'+eventId);
     } catch(e) {
-      op.status='UNKNOWN';op.message='Paid request outcome is unconfirmed; no automatic retry.';nbaOperation_(state.run_id,kind,eventId,op);
-      job.warnings.push(game.matchup+': '+op.message+' '+safeError_(e));if(e&&e.stopPaidBatch)job.stop_paid=true;return 'UNKNOWN';
+      const notSent=!!(e&&e.notSent);
+      op.status=notSent?'NOT_SENT':'UNKNOWN';op.message=notSent?'No request was sent: '+safeError_(e):'Paid request outcome is unconfirmed; no automatic retry.';op.error=errorCategory_(e,'LOAD '+kind+'-'+eventId);
+      nbaOperationSafe_(state.run_id,kind,eventId,op);
+      job.warnings.push(game.matchup+': '+(notSent?op.message:op.message+' '+safeError_(e)));if(e&&e.stopPaidBatch)job.stop_paid=true;return notSent?'NOT_SENT':'UNKNOWN';
+    }
+    // From here the response is paid for. Nothing below may discard it.
+    saved={text:response.text,key_slot:response.slot?response.slot.label:'',actual_credits:numberHeader_(response.headers,'x-requests-last'),retrieved_utc:now_(),
+      http_code:response.http_code||200,safe_headers:response.safe_headers||{},reservation_id:response.reservation_id||''};
+    const rawSaved=nbaSaveRawResponse_(state.run_id,rawKind,saved);
+    op.status='RESPONSE_SAVED';op.response_saved=true;op.raw_saved=rawSaved;op.key_slot=saved.key_slot;op.actual_credits=saved.actual_credits;op.response_saved_utc=saved.retrieved_utc;
+    op.reservation_id=saved.reservation_id;op.http_code=saved.http_code;op.safe_headers=saved.safe_headers;op.ledger_state=response.ledger_state||'';
+    nbaOperationSafe_(state.run_id,kind,eventId,op);
+    if(rawSaved)nbaSaveResponsePointer_(state.run_id,kind,eventId,saved.retrieved_utc);
+    else job.warnings.push(game.matchup+': the paid '+kind+' response could not be saved to Drive; its data is still being committed.');
+    if(op.ledger_state==='SETTLEMENT_PENDING'){
+      // One free settlement attempt at the end of the step, same reservation ID.
+      try{op.ledger_state=nbaLedgerSettleOne_(op.reservation_id,op.http_code,op.safe_headers)==='SETTLED'?'SETTLED':'UNKNOWN';nbaOperationSafe_(state.run_id,kind,eventId,op);}catch(ignore){}
     }
   }
-  if(!op.response_saved){op.response_saved=true;op.status='RESPONSE_SAVED';op.key_slot=saved.key_slot;op.actual_credits=saved.actual_credits;nbaOperation_(state.run_id,kind,eventId,op);}
+  if(!op.response_saved&&!op.reused_from){op.response_saved=true;op.status='RESPONSE_SAVED';op.key_slot=saved.key_slot;op.actual_credits=saved.actual_credits;nbaOperationSafe_(state.run_id,kind,eventId,op);}
   try {
-    const payload=json_({text:saved.text},'Saved NBA odds'),time=now_();
+    const payload=json_({text:saved.text},'Saved NBA odds'),time=step.reuse?String(saved.retrieved_utc||now_()):now_();
     if(String(payload.id||'')!==String(eventId))fail_('Saved provider event does not match the selected game.');
     if(kind==='standard'){
       const rows=propsRows_(game,payload,[],time);
-      write_(TAB_PROPS,propsHeaders_(),mergeProps_(read_(TAB_PROPS,propsHeaders_().length),rows,game));
-      try{writeLatestNormalizedProps_(normalizeOddsApiEvent_(payload,BOOK),eventId,'mobile_odds_api_refresh');}catch(e){job.warnings.push(game.matchup+': normalized provider mirror was not updated.');}
-      recordOddsApiLineHistorySafely_(payload,'mobile_props_refresh',eventId);
+      replacePropsRows_(rows,game);
+      let mirrored=false;
+      // The mirror records line history itself; history runs separately only if the mirror write fails.
+      try{writeLatestNormalizedProps_(normalizeOddsApiEvent_(payload,BOOK),eventId,'mobile_odds_api_refresh');mirrored=true;}catch(e){job.warnings.push(game.matchup+': normalized provider mirror was not updated.');}
+      if(!mirrored)recordOddsApiLineHistorySafely_(payload,'mobile_props_refresh',eventId);
       const index=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length),at=index.findIndex(r=>String(r[IDX.EVENT])===String(eventId));
       if(at>=0)sheet_(TAB_INDEX).getRange(at+2,IDX.PROPS_UPDATED+1).setValue(time);
     } else {
       const rows=alternatePropsRows_(game,payload,[],time);
-      write_(TAB_ALT_PROPS,ALT_PROPS_HEADERS,mergeAlternateProps_(read_(TAB_ALT_PROPS,ALT_PROPS_HEADERS.length),rows,game));
+      replaceAlternateRows_(rows,game);
       recordOddsApiLineHistorySafely_(payload,'mobile_alternate_props_refresh',eventId);
     }
-    op.status='COMMITTED';op.committed_utc=now_();nbaOperation_(state.run_id,kind,eventId,op);return 'SUCCESS';
+    op.status='COMMITTED';op.committed_utc=now_();nbaOperationSafe_(state.run_id,kind,eventId,op);return 'SUCCESS';
   } catch(e) {
-    op.status='FAILED';op.message=safeError_(e);nbaOperation_(state.run_id,kind,eventId,op);
+    const category=errorCategory_(e,'LOAD '+kind+'-'+eventId);
+    op.status='FAILED';op.message=safeError_(e,category);op.error=category;nbaOperationSafe_(state.run_id,kind,eventId,op);
+    log_('NBA staged '+kind,eventId,'ERROR',op.message,0);
     job.warnings.push(game.matchup+': saved '+kind+' response could not be committed. '+op.message);return 'FAILED';
   }
 }
@@ -897,8 +1127,17 @@ function nbaStageAdvance_(state,job) {
     const step=steps[state.cursor],game=job.games.find(g=>g.id===step.event_id);
     state.message=(step.kind==='alternate'?'Loading alternate props':'Loading standard props')+' for '+game.matchup+' ('+(state.cursor+1)+' of '+steps.length+').';
     if(Date.parse(game.kickoff)<=Date.now()){job.warnings.push(game.matchup+': tipoff passed before loading; paid request skipped.');state.cursor++;return;}
-    if(job.stop_paid){job.warnings.push(game.matchup+': remaining paid requests skipped after a quota or key failure.');state.cursor++;return;}
-    const result=nbaPaidStep_(state,job,step,game);
+    if(job.stop_paid){job.warnings.push(game.matchup+': remaining paid requests skipped after a quota, key or nightly cap stop.');state.cursor++;return;}
+    // One bad step never fails the whole run: it is marked FAILED, never
+    // retried, and the run continues to a PARTIAL export.
+    let result;
+    try{result=nbaPaidStep_(state,job,step,game);}
+    catch(e){
+      const category=errorCategory_(e,'LOAD '+step.kind+'-'+step.event_id),message=safeError_(e,category);result='FAILED';
+      job.warnings.push(game.matchup+': '+step.kind+' step stopped and was skipped; nothing was retried. '+message);
+      log_('NBA staged '+step.kind,step.event_id,'ERROR',message,0);
+      try{const op=nbaOperation_(state.run_id,step.kind,step.event_id);if(op&&op.status!=='COMMITTED'){op.error=category;if(op.status==='INTENT')op.status='UNKNOWN';nbaOperation_(state.run_id,step.kind,step.event_id,op);}}catch(ignore){}
+    }
     job.load_status[game.id][step.kind]=result;state.cursor++;
     state.partial={standard_loaded_events:Object.values(job.load_status).filter(item=>item.standard==='SUCCESS').length,alternate_loaded_events:Object.values(job.load_status).filter(item=>item.alternate==='SUCCESS').length};
     return;
@@ -929,7 +1168,12 @@ function nbaStageAdvance_(state,job) {
     const filename=analysisManifestFilename_(job.timestamp,payload.event_ids,payload.snapshot_id),file=nbaEnsureSnapshot_(filename,manifest);
     job.export={filename:job.audit_filename,fileId:job.audit_id,driveUrl:job.audit_url,eventIds:payload.event_ids,exportTimestampUtc:job.timestamp,providerCoverageSummary:payload.provider_coverage_summary,warnings:job.warnings.concat(payload.data_quality.warnings),appBuild:MOBILE_APP_BUILD,snapshotId:payload.snapshot_id,
       analysisManifestFilename:filename,analysisManifestDriveUrl:file.getUrl(),analysisGameFiles:job.files,eligibleEventIds:manifest.eligible_event_ids,ineligibleEventIds:manifest.ineligible_events.map(g=>g.event_id),games:payload.games.map(g=>({event_id:g.event_id,matchup:g.matchup,kickoff_et:g.kickoff_et,kickoff_utc:g.kickoff_utc,analysis_eligible:manifest.eligible_event_ids.indexOf(g.event_id)>=0}))};
+    // Settle any pending ledger write before the receipt is published.
+    const ledger=nbaLedgerSweep_(state,job);
+    if(ledger.pending.length)job.export.warnings.push(ledger.pending.length+' shared ledger update'+(ledger.pending.length===1?' is':'s are')+' still pending; the paid responses are saved and nothing was bought twice.');
     job.export.receipt=mobileExportReceipt_(job.export,{charges:nbaRunCharges_(state,job)},{charges:[]},{usage:{status:'DISABLED_PENDING_COVERAGE_TEST'}},job.export.warnings);
+    job.export.receipt.ledger_pending=ledger.pending.slice();job.export.receipt.night_cap=nbaNightView_();job.export.receipt.timings=nbaRunTimings_(state,job);
+    const logWarning=logWriteWarning_();if(logWarning&&logWarning.count)job.export.receipt.log_write_failures=logWarning.count;
     const uncertain=nbaLoadSteps_(job).some(step=>{const op=nbaOperation_(state.run_id,step.kind,step.event_id);return op&&op.status==='UNKNOWN';});
     if(uncertain){job.export.receipt.total_charge_unconfirmed=true;job.export.warnings.push('At least one paid request has an unconfirmed outcome; no retry was made.');}
     state.stage='PUBLISH';return;
@@ -946,6 +1190,19 @@ function nbaStageAdvance_(state,job) {
   }
   fail_('Unknown NBA checkpoint stage.');
 }
+// Seconds per stage and per paid step, for the receipt.
+function nbaTimedAdvance_(state,job) {
+  const stage=state.stage,steps=stage==='LOAD'?nbaLoadSteps_(job):[],step=stage==='LOAD'?steps[state.cursor]:null,t0=Date.now();
+  try{nbaStageAdvance_(state,job);}
+  finally{
+    const secs=(Date.now()-t0)/1000,round=v=>Math.round(v*10)/10,stages=job.stage_seconds||(job.stage_seconds={});stages[stage]=round((stages[stage]||0)+secs);
+    if(step)(job.load_seconds||(job.load_seconds={}))[step.kind+'-'+step.event_id]=round(secs);
+  }
+}
+function nbaRunTimings_(state,job) {
+  const total=Date.parse(state.started_utc);
+  return {stage_seconds:job.stage_seconds||{},load_seconds:job.load_seconds||{},total_seconds:Number.isFinite(total)?Math.round((Date.now()-total)/100)/10:null};
+}
 function continueNbaMobileLoad() {
   const claim=LockService.getScriptLock();if(!claim.tryLock(1000))return {status:'BUSY'};
   let state;
@@ -959,17 +1216,19 @@ function continueNbaMobileLoad() {
   const started=Date.now();
   try {
     const job=nbaRunFile_(state.run_id,'job');if(!job)fail_('Saved NBA run plan is missing.');
+    // Free settlement sweep at every worker start; never repeats a paid request.
+    try{nbaLedgerSweep_(state,job);}catch(ignore){}
     let workLock;try{workLock=LockService.getDocumentLock();}catch(ignore){}if(!workLock)workLock=LockService.getScriptLock();
     if(!workLock.tryLock(1000)){state.lease_until_utc='';nbaSaveStageState_(state);nbaArmContinuation_(60000);return {status:'OTHER_LOADER_RUNNING'};}
     try {
       let steps=0;
       while(state.state==='RUNNING'&&Date.now()-started<4*60000&&steps++<30){
         mobileUpdateRun_({id:state.run_id},state.stage.toLowerCase(),state.message||'Continuing NBA load.');
-        nbaStageAdvance_(state,job);nbaRunFile_(state.run_id,'job',job);state.stage_attempts=0;nbaSaveStageState_(state);
+        nbaTimedAdvance_(state,job);nbaRunFile_(state.run_id,'job',job);state.stage_attempts=0;nbaSaveStageState_(state);
       }
     } finally {workLock.releaseLock();}
   } catch(e) {
-    state.state='FAILED';state.message=safeError_(e);saveMobileExportRun_(state.run_id,{state:'FAILED',signature:state.signature,created_utc:state.started_utc,updated_utc:now_(),message:state.message,partial:state.partial});mobileFinishRun_({id:state.run_id},'FAILED',state.message);
+    state.state='FAILED';state.message=safeError_(e,errorCategory_(e,'stage '+String(state.stage||'')));saveMobileExportRun_(state.run_id,{state:'FAILED',signature:state.signature,created_utc:state.started_utc,updated_utc:now_(),message:state.message,partial:state.partial});mobileFinishRun_({id:state.run_id},'FAILED',state.message);
   }
   state.lease_until_utc='';nbaSaveStageState_(state);
   if(state.state==='RUNNING')nbaArmContinuation_(60000);else nbaClearContinuation_();
@@ -986,6 +1245,10 @@ function mobileLoadAndExport(plan,requestId) {
     const current=mobileAssertPlan_(plan),active=mobileRunStatus_(),staged=nbaStageState_();
     if(active&&active.state==='RUNNING')fail_('Another export is still running. Wait for its result before starting a new request.');
     if(staged&&staged.state==='RUNNING')fail_('A previous NBA load needs status reconciliation before another paid request.');
+    const loadable=current.event_ids.length-(current.started_games||[]).length;
+    if(loadable<=0)fail_('Every selected game has started, so nothing can be loaded. No credits were spent.');
+    const night=current.night_cap||nbaNightView_();
+    if(current.max_total_odds_api_credits>night.remaining)fail_('This load needs up to '+current.max_total_odds_api_credits+' credits, but tonight\'s '+night.cap+'-credit cap has '+night.remaining+' left ('+night.counted+' already counted). No request was sent.');
     // Fail before writing a queued run when trigger management is unavailable.
     nbaContinuationTriggers_();
     const allGames=requireGames_();
@@ -994,7 +1257,8 @@ function mobileLoadAndExport(plan,requestId) {
     const run=mobileBeginRun_('load_and_export',allGames,id);
     try {
       const standardIds=new Set(current.games_requiring_refresh.map(item=>item.event_id)),alternateIds=new Set((current.alternate_games_requiring_refresh||[]).map(item=>item.event_id));
-      const items=allGames.map(g=>({event_id:g.id,standard_credits:standardIds.has(g.id)?PROP_MARKETS.length:0,alternate_credits:alternateIds.has(g.id)?MOBILE_ALTERNATE_MARKETS.length:0}));
+      const reuse=list=>{const out={};(list||[]).forEach(item=>{if(item.reuse_saved_response)out[item.event_id]=item.reuse_saved_response;});return out;},standardReuse=reuse(current.reusable_props),alternateReuse=reuse(current.alternate_reusable_props);
+      const items=allGames.map(g=>({event_id:g.id,standard_credits:standardIds.has(g.id)?PROP_MARKETS.length:0,alternate_credits:alternateIds.has(g.id)?MOBILE_ALTERNATE_MARKETS.length:0,standard_reuse:standardReuse[g.id]||null,alternate_reuse:alternateReuse[g.id]||null}));
       const status={};allGames.forEach(g=>status[g.id]={});
       const job={games:allGames,items:items,load_status:status,warnings:[],files:[],stop_paid:false};
       nbaRunFile_(id,'job',job);
@@ -1010,11 +1274,33 @@ function mobileLoadAndExport(plan,requestId) {
     }
   });
 }
-function safeError_(e) {
+// Record only a service name, step and error class. Native messages can
+// contain request URLs and therefore credentials; they are never stored.
+const ERROR_SERVICES_=['DRIVE','PROPERTIES','LOCK','URLFETCH','SPREADSHEET','MAIL','LIBRARY','APP'];
+function tagService_(e,service) {
+  if(e&&typeof e==='object'&&!e.nbaService)e.nbaService=service;
+  return e;
+}
+function errorCategory_(e,step) {
+  let service=e&&ERROR_SERVICES_.indexOf(e.nbaService)>=0?e.nbaService:'';
+  if(!service) {
+    // Classify by pattern only; the message itself is discarded.
+    const text=String(e&&e.message||'');
+    service=/DriveApp|Drive\b/i.test(text)?'DRIVE':/Propert/i.test(text)?'PROPERTIES':/\bLock/i.test(text)?'LOCK':/UrlFetch|Address unavailable|Request failed for|DNS error|Timeout:/i.test(text)?'URLFETCH':/Spreadsheet|\bRange\b|\bSheet\b/i.test(text)?'SPREADSHEET':/Mail/i.test(text)?'MAIL':e&&e.loaderSafe?'APP':'UNKNOWN';
+  }
+  const name=String(e&&e.name||'Error');
+  return {service:service,step:String(step||'').slice(0,80),error_class:/^[A-Za-z]{1,40}$/.test(name)?name:'Error'};
+}
+function safeError_(e,category) {
   // Only internal, credential-free messages are exposed. Never include URL, response body or native transport error.
-  return e && e.loaderSafe ? e.message : 'Operation failed. Existing uncommitted data retained; inspect execution and retry after diagnosis.';
+  if(e&&e.loaderSafe)return e.message;
+  const c=category||errorCategory_(e,'');
+  return 'Operation failed ('+c.service+(c.step?' · '+c.step:'')+' · '+c.error_class+'). Existing uncommitted data retained; inspect execution and retry after diagnosis.';
 }
 function fail_(s) { const e=new Error(s); e.loaderSafe=true; throw e; }
+function failService_(service,s) { const e=new Error(s); e.loaderSafe=true; e.nbaService=service; throw e; }
+// Raised before any provider request was sent, so no charge is possible.
+function failNotSent_(s) { const e=new Error(s); e.loaderSafe=true; e.notSent=true; e.stopPaidBatch=true; throw e; }
 function failPaidBatch_(s) { const e=new Error(s);e.loaderSafe=true;e.stopPaidBatch=true;throw e; }
 function header_(headers,key) { const k=Object.keys(headers).find(k=>k.toLowerCase()===key); return k===undefined?undefined:headers[k]; }
 function numberHeader_(headers,key) {
@@ -1085,23 +1371,31 @@ function safeOddsFailure_(label,code,slot,result) {
 }
 function request_(url,label,paid,event,isOdds,slot,expectedCost) {
   const shared=!!(slot&&slot.shared_pool),reservation=slot&&slot.shared_reservation;
-  if(reservation)nbaSharedCall_('sent',{reservation_id:reservation});
+  if(reservation){try{nbaSharedCall_('sent',{reservation_id:reservation});}catch(e){e.notSent=true;throw e;}}
+  const markUnknown=()=>{if(reservation){try{nbaSharedCall_('unknown',{reservation_id:reservation});}catch(ignore){/* The reservation stays SENT and is reported; its charge is never guessed. */}}};
   for(let attempt=0;attempt<(paid||shared?1:3);attempt++) {
     let res;
     try { res=UrlFetchApp.fetch(url,{muteHttpExceptions:true,followRedirects:true,headers:{'User-Agent':'NBA-Game-Prep/1.0','Accept':'application/vnd.github+json'}}); }
     catch(e) {
-      if(reservation)nbaSharedCall_('unknown',{reservation_id:reservation});
+      markUnknown();
       if(!paid&&!shared&&attempt<2) { Utilities.sleep(500*Math.pow(2,attempt)); continue; }
       if(isOdds) log_(label,event,'TRANSPORT ERROR',(slot?slot.label+'; ':'')+'charge unknown; key pool unchanged; no automatic paid retry.');
-      fail_(label+': transport failure.');
+      failService_('URLFETCH',label+': transport failure.');
     }
-    const code=res.getResponseCode(), h=res.getAllHeaders()||{};let body;
-    try{body=res.getContentText();}catch(ignore){if(reservation)nbaSharedCall_('unknown',{reservation_id:reservation});fail_(label+': unreadable response.');}
-    if(reservation)nbaSharedCall_('response',{reservation_id:reservation,http_code:code,headers:{'x-requests-last':header_(h,'x-requests-last'),'x-requests-used':header_(h,'x-requests-used'),'x-requests-remaining':header_(h,'x-requests-remaining')}});
+    const code=res.getResponseCode(), h=res.getAllHeaders()||{},safeHeaders=nbaSafeHeaders_(h);let body;
+    try{body=res.getContentText();}catch(ignore){markUnknown();failService_('URLFETCH',label+': unreadable response.');}
+    // The response is in hand. A failed free ledger write must not discard it:
+    // record the write as pending and settle it later under this same
+    // reservation ID. The paid request itself is never repeated.
+    let ledgerState='';
+    if(reservation){
+      try{const settled=nbaSharedCall_('response',{reservation_id:reservation,http_code:code,headers:safeHeaders});ledgerState=settled&&settled.state==='SETTLED'?'SETTLED':'UNKNOWN';}
+      catch(ignore){ledgerState='SETTLEMENT_PENDING';nbaLedgerPendingSave_(reservation,code,safeHeaders,label,event);log_(label,event,'LEDGER PENDING','Ledger update pending; the request was sent and its saved response is kept. No paid retry.',0);}
+    }
     const errorCode=code===200?'':apiErrorCode_(body);
     const poolResult=shared?{kind:code===429?'RATE_LIMIT':['INVALID_KEY','DEACTIVATED_KEY','MISSING_KEY'].includes(errorCode)?'AUTH':errorCode==='OUT_OF_USAGE_CREDITS'?'QUOTA':code===200?'SUCCESS':'OTHER',next:'',record:{errorCode:errorCode}}:isOdds&&slot?updateKeyPoolFromResponse_(slot,code,h,body,expectedCost||0,paid):null;
     if(isOdds) log_(label,event,'HTTP '+code,slot?slot.label:'',header_(h,'x-requests-last'),header_(h,'x-requests-used'),header_(h,'x-requests-remaining'));
-    if(code===200) return {text:body,headers:h,slot:slot||null};
+    if(code===200) return {text:body,headers:h,slot:slot||null,http_code:code,safe_headers:safeHeaders,ledger_state:ledgerState,reservation_id:reservation||''};
     // Free public requests only: bounded retry of 429/5xx. Never repeat 401/403.
     if(!paid&&!shared&&(code===429||code>=500)&&attempt<2) { Utilities.sleep(2000*Math.pow(2,attempt)); continue; }
     if(isOdds&&slot) {
@@ -1116,10 +1410,16 @@ function json_(r,label) { try{return JSON.parse(r.text);}catch(e){fail_(label+':
 function oddsRequest_(path,params,paid,event,expectedCost,runId,operation) {
   if(paid&&(!Number.isFinite(expectedCost)||expectedCost<=0))fail_('Paid Odds API requests require an explicit expected cost.');
   runId=runId||Utilities.getUuid();operation=operation||'odds-'+Utilities.getUuid();
-  const selected=paid?nbaSharedCall_('reserve',{run_id:runId,operation:operation,expected_credits:expectedCost}):nbaSharedCall_('free_key',{});
+  const ticket=paid?nbaNightReserve_(expectedCost):null;let selected;
+  try{selected=paid?nbaSharedCall_('reserve',{run_id:runId,operation:operation,expected_credits:expectedCost}):nbaSharedCall_('free_key',{});}
+  catch(e){if(ticket)nbaNightSettle_(ticket,0);if(e&&typeof e==='object')e.notSent=true;throw e;}
   const slot={label:selected.slot.label,key:selected.slot.key,shared_pool:true,shared_reservation:paid?selected.reservation_id:''};
   const url=API_BASE+path+'?'+(params?params+'&':'')+'apiKey='+encodeURIComponent(slot.key);
-  return request_(url,paid?'Odds':'Odds metadata',paid,event,true,slot,expectedCost||0);
+  let response;
+  try{response=request_(url,paid?'Odds':'Odds metadata',paid,event,true,slot,expectedCost||0);}
+  catch(e){if(ticket&&e&&e.notSent)nbaNightSettle_(ticket,0);throw e;}
+  if(ticket)nbaNightSettle_(ticket,numberHeader_(response.headers,'x-requests-last'));
+  return response;
 }
 function odds_(path,params,paid,event,expectedCost,runId,operation) {
   return json_(oddsRequest_(path,params,paid,event,expectedCost,runId,operation),'Odds');
@@ -1190,7 +1490,7 @@ function sportsGameOddsRequest_(plan) {
 function fetchSportsGameOddsTestEvent(eventId,dryRun) {
   const plan=sportsGameOddsTestPlan(eventId);
   if(dryRun!==false)return plan;
-  log_('SportsGameOdds',plan.event_id,'PLANNED','One event; two requested markets; 0 Odds API credits; no automatic retry.',0);
+  logRequired_('SportsGameOdds',plan.event_id,'PLANNED','One event; two requested markets; 0 Odds API credits; no automatic retry.',0);
   return sportsGameOddsRequest_(plan);
 }
 function sportsGameOddsAutoTestDryRun() {
@@ -1285,10 +1585,10 @@ function normalizedPropsRows_(normalized,oddsEventId,captureContext) {
   return normalized.quotes.concat(normalized.unavailable_quotes).map(q=>[normalized.provider,normalized.provider_event_id,oddsEventId,game,normalized.home_team,normalized.away_team,normalized.kickoff_utc,normalized.bookmaker,q.market_key,q.provider_market_key,q.player_id||'',q.player_key,q.player,q.player_team||'',q.line===null?'':q.line,q.side,q.price,q.available===true,q.source_updated_utc,retrieved,q.provider_quote_id,captureContext]);
 }
 function writeLatestNormalizedProps_(normalized,oddsEventId,captureContext) {
-  const existing=read_(TAB_NBA_PROPS,NBA_PROPS_HEADERS.length),replacement=normalizedPropsRows_(normalized,oddsEventId,captureContext),kept=existing.filter(r=>!(r[0]===normalized.provider&&String(r[1])===String(normalized.provider_event_id)));
-  write_(TAB_NBA_PROPS,NBA_PROPS_HEADERS,kept.concat(replacement));
+  const replacement=normalizedPropsRows_(normalized,oddsEventId,captureContext);
+  const result=replaceRows_(TAB_NBA_PROPS,NBA_PROPS_HEADERS,[0,1],r=>r[0]===normalized.provider&&String(r[1])===String(normalized.provider_event_id),replacement);
   recordLineHistorySafely_(normalized,captureContext,oddsEventId);
-  return {observed:replacement.length,replaced:existing.length-kept.length};
+  return {observed:replacement.length,replaced:result.removed};
 }
 function loadSportsGameOddsForMobile_(games,plan) {
   if(!SPORTS_GAME_ODDS_NBA_ENABLED)return {successes:0,warnings:[],usage:{scope:'NBA coverage test not yet approved',status:'DISABLED_PENDING_COVERAGE_TEST',returned_event_objects:0,max_returned_event_objects:0,no_automatic_retries:true}};
@@ -1437,8 +1737,9 @@ function lineHistoryRows_(normalized,captureContext) {
   ]);
 }
 function recordNormalizedLineHistory_(normalized,captureContext) {
-  const s=ensureLineHistorySheet_(),existing=read_(TAB_LINE_HISTORY,LINE_HISTORY_HEADERS.length),seen={};
-  existing.forEach(row=>{if(String(row[0]||'').trim())seen[String(row[0])]=true;});
+  // Only the History ID column is needed to skip rows already recorded.
+  const s=ensureLineHistorySheet_(),seen={},count=Math.max(0,s.getLastRow()-1);
+  if(count)s.getRange(2,1,count,1).getValues().forEach(row=>{if(String(row[0]||'').trim())seen[String(row[0])]=true;});
   const all=lineHistoryRows_(normalized,captureContext),newRows=all.filter(row=>!seen[row[0]]);
   if(newRows.length)s.getRange(s.getLastRow()+1,1,newRows.length,LINE_HISTORY_HEADERS.length).setValues(newRows.map(row=>row.map(cell_)));
   return {observed:all.length,inserted:newRows.length,duplicates:all.length-newRows.length};
@@ -1552,7 +1853,7 @@ function phase4OddsApiCaptureFetch() {
   return run_('Phase 4 Odds capture',()=>{
     const plan=phase4OddsApiCapturePlan_();
     if(phase4CaptureSignature_(plan)!==phase4CaptureSignature_(planned))fail_('Phase 4 target changed after confirmation. Run the preview again.');
-    log_('Phase 4 Odds capture',plan.odds_api_event_id,'PLANNED','Two markets, DraftKings, maximum 2 Odds API credits; no automatic retry.',2);
+    logRequired_('Phase 4 Odds capture',plan.odds_api_event_id,'PLANNED','Two markets, DraftKings, maximum 2 Odds API credits; no automatic retry.',2);
     const response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(plan.odds_api_event_id)+'/odds',plan.params,true,plan.odds_api_event_id,2);
     const rawFile=writeDriveTextIdempotent_(PHASE4_ODDS_RAW_FILENAME,response.text); // Persist before parsing.
     const oddsEvent=json_(response,'Phase 4 Odds API fixture'),fixture=phase4SgoFixture_(),normalizedOdds=normalizeOddsApiEvent_(oddsEvent,BOOK);
@@ -1787,6 +2088,10 @@ function alternatePropsRows_(g,payload,roster,time) {
   }
   if(!rows.length)fail_('No requested alternate props returned; previous alternate props preserved.');return rows;
 }
+function propsRowIsGame_(r,g) {const eventIndex=propsHeaders_().indexOf('Event ID'),gameIndex=propsHeaders_().indexOf('Game');return r[eventIndex]?String(r[eventIndex])===String(g.id):r[gameIndex]===g.matchup;}
+function replacePropsRows_(rows,g) {const h=propsHeaders_();return replaceRows_(TAB_PROPS,h,[h.indexOf('Game'),h.indexOf('Event ID')],r=>propsRowIsGame_(r,g),rows);}
+function alternateRowIsGame_(r,g) {const event=ALT_PROPS_HEADERS.indexOf('Event ID'),game=ALT_PROPS_HEADERS.indexOf('Game');return r[event]?String(r[event])===String(g.id):r[game]===g.matchup;}
+function replaceAlternateRows_(rows,g) {return replaceRows_(TAB_ALT_PROPS,ALT_PROPS_HEADERS,[ALT_PROPS_HEADERS.indexOf('Game'),ALT_PROPS_HEADERS.indexOf('Event ID')],r=>alternateRowIsGame_(r,g),rows);}
 function mergeAlternateProps_(old,rows,g) {
   const event=ALT_PROPS_HEADERS.indexOf('Event ID'),game=ALT_PROPS_HEADERS.indexOf('Game');
   return old.filter(r=>r[event]?String(r[event])!==String(g.id):r[game]!==g.matchup).concat(rows);
@@ -1798,11 +2103,11 @@ function loadAlternatePropsForGames_(games,onProgress,preparedRoster) {
     try {
       if(onProgress)onProgress(g);
       const expected=MOBILE_ALTERNATE_MARKETS.length;
-      log_('Mobile alternate props',g.id,'PLANNED','Expected '+expected+' credits for '+MOBILE_ALTERNATE_MARKETS.join(', ')+'; no automatic paid retry.',expected);
+      logRequired_('Mobile alternate props',g.id,'PLANNED','Expected '+expected+' credits for '+MOBILE_ALTERNATE_MARKETS.join(', ')+'; no automatic paid retry.',expected);
       const response=oddsRequest_('/sports/'+SPORT+'/events/'+encodeURIComponent(g.id)+'/odds','bookmakers='+BOOK+'&markets='+MOBILE_ALTERNATE_MARKETS.join(',')+'&oddsFormat=american',true,g.id,expected),payload=json_(response,'Odds');
       charges.push({event_id:g.id,key_slot:response.slot?response.slot.label:'',actual_credits:numberHeader_(response.headers,'x-requests-last')});
       const time=now_(),rows=alternatePropsRows_(g,payload,roster,time);
-      write_(TAB_ALT_PROPS,ALT_PROPS_HEADERS,mergeAlternateProps_(read_(TAB_ALT_PROPS,ALT_PROPS_HEADERS.length),rows,g));
+      replaceAlternateRows_(rows,g);
       recordOddsApiLineHistorySafely_(payload,'mobile_alternate_props_refresh',g.id);
       log_('Mobile alternate props',g.id,'SUCCESS',rows.length+' ladder outcomes; '+rows.filter(r=>r[18]!=='MATCHED').length+' unresolved joins',0);successes++;
     } catch(e) {
@@ -1830,7 +2135,7 @@ function loadCheckedProps(prepared) {
       try {
         const payload=odds_('/sports/'+SPORT+'/events/'+encodeURIComponent(g.id)+'/odds','bookmakers='+BOOK+'&markets='+PROP_MARKETS.join(',')+'&oddsFormat=american',true,g.id,PROP_MARKETS.length);
         const time=now_(),rows=propsRows_(g,payload,roster,time);
-        write_(TAB_PROPS,propsHeaders_(),mergeProps_(read_(TAB_PROPS,propsHeaders_().length),rows,g));
+        replacePropsRows_(rows,g);
         recordOddsApiLineHistorySafely_(payload,'desktop_props_refresh',g.id);
         // Stamp after the event's successful write, never for failed or absent events.
         const idx=read_(TAB_INDEX,INDEX_HEADERS.length+INDEX_EXTRA.length),i=idx.findIndex(r=>r[0]===g.id);
@@ -2113,7 +2418,7 @@ function ladderScanFetch() {
     const game=ladderScanGame_();
     if(game.id!==planned.id)fail_('INDEX selection changed after confirmation. Run the dry run again.');
     const path='/sports/'+SPORT+'/events/'+encodeURIComponent(game.id)+'/odds',params=ladderScanParams_();
-    log_('Ladder scan',game.id,'PLANNED',path+'?'+params,2);
+    logRequired_('Ladder scan',game.id,'PLANNED',path+'?'+params,2);
     const response=oddsRequest_(path,params,true,game.id,2);
     const filename='ladder_scan_raw_'+game.id+'.json';
     const file=writeDriveTextIdempotent_(filename,response.text); // Save exact raw body before parsing.

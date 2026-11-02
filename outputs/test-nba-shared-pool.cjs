@@ -7,6 +7,7 @@ const source=fs.readFileSync(path.join(__dirname,'NbaOddsLoader.gs'),'utf8');
 const mobile=fs.readFileSync(path.join(__dirname,'Mobile.html'),'utf8');
 const calls=[];
 let transportCalls=0,transportFailure=false;
+const props=new Map(); // Script Properties: the nightly credit count lives here.
 const ctx=vm.createContext({
   SharedNFL:{
     registerNBA(){calls.push('register');return {registered:true};},
@@ -22,8 +23,8 @@ const ctx=vm.createContext({
     if(transportFailure)throw Error('offline');
     return {getResponseCode:()=>200,getAllHeaders:()=>({'x-requests-last':'5','x-requests-used':'6','x-requests-remaining':'24'}),getContentText:()=>'{"ok":true}'};
   }},
-  Utilities:{getUuid:()=> 'random-id'},
-  PropertiesService:{getScriptProperties:()=>({getProperty(key){if(key.startsWith('NBA_ODDS_API_KEY_'))throw Error('read local key');return null;}})},
+  Utilities:{getUuid:()=> 'random-id',formatDate:require('./nba-test-dates.cjs').formatDate},
+  PropertiesService:{getScriptProperties:()=>({getProperty(key){if(key.startsWith('NBA_ODDS_API_KEY_'))throw Error('read local key');return props.get(key)||null;},setProperty(key,value){props.set(key,String(value));},getProperties(){return Object.fromEntries(props);},deleteProperty(key){props.delete(key);}})},
   console
 });
 vm.runInContext(source,ctx,{filename:'NbaOddsLoader.gs'});

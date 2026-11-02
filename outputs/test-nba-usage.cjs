@@ -9,13 +9,13 @@ let count=0;const failures=[];
 function test(name,fn){try{fn();count++;console.log('PASS '+name);}catch(error){failures.push(name);console.log('FAIL '+name+'\n     '+String(error&&error.message||error).split('\n').slice(0,process.env.VERBOSE?12:2).join(' | '));}}
 const plain=v=>v===undefined?v:JSON.parse(JSON.stringify(v));
 const URL='https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_player_boxscores/player_box_2027.csv';
-const COLS=['game_id','season','game_date','athlete_id','athlete_display_name','team_display_name','team_abbreviation','opponent_team_abbreviation','home_away','minutes','field_goals_attempted','three_point_field_goals_made','three_point_field_goals_attempted','free_throws_attempted','offensive_rebounds','defensive_rebounds','rebounds','assists','turnovers','points','starter','did_not_play','reason','team_logo'];
+const COLS=['team_score','game_id','season','game_date','athlete_id','athlete_display_name','team_display_name','team_abbreviation','opponent_team_abbreviation','home_away','minutes','field_goals_attempted','three_point_field_goals_made','three_point_field_goals_attempted','free_throws_attempted','offensive_rebounds','defensive_rebounds','rebounds','assists','turnovers','points','starter','did_not_play','reason','team_logo'];
 // Export clock 2026-11-02 20:00Z; both games tip 23:00Z = Nov 2 Eastern.
 // Celtics (BOS) games: Oct 25, Oct 27, Oct 29, Oct 30, Oct 31, Nov 1 (six games;
 // the last five are shown). Knicks (NY): Oct 28, Oct 30 only.
 // Player One event1 (BOS) plays every game except Oct 30 (DNP, rest).
 // Each BOS game has Player One plus a teammate so team totals are known.
-function row(o){const r={season:'2027',home_away:'home',started:'',team_logo:'https://x/y.png, with comma',reason:'',did_not_play:'false',starter:'true',offensive_rebounds:'1',defensive_rebounds:'5',three_point_field_goals_made:'2',three_point_field_goals_attempted:'6',turnovers:'2'};Object.assign(r,o);return COLS.map(c=>{const v=String(r[c]===undefined?'':r[c]);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(',');}
+function row(o){const r={team_score:'110',season:'2027',home_away:'home',started:'',team_logo:'https://x/y.png, with comma',reason:'',did_not_play:'false',starter:'true',offensive_rebounds:'1',defensive_rebounds:'5',three_point_field_goals_made:'2',three_point_field_goals_attempted:'6',turnovers:'2'};Object.assign(r,o);return COLS.map(c=>{const v=String(r[c]===undefined?'':r[c]);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(',');}
 function boxCsv(extra){
  const lines=[COLS.join(',')];
  const bos=['2026-10-25','2026-10-27','2026-10-29','2026-10-30','2026-10-31','2026-11-01'];

@@ -96,6 +96,18 @@ reasons) and each team's rest days and back-to-back flag. It is history to
 verify against live news, never a projection: do not average it into an
 expected number. Rebound chances and potential assists are not in that source.
 A missing or UNAVAILABLE usage context is never a refusal reason.
+ChatGPT and Claude handoffs end with an NBA_CANDIDATES_V1 JSON block of the
+same five classified candidates per eligible game (exact exported quotes,
+snapshot_id from the manifest). The phone's "Log AI picks" validates it
+against that exact snapshot, all or nothing, and appends to CANDIDATES
+(append-only revisions); rows logged after tipoff are POST_KICKOFF and never
+graded. "Grade finished games — free" settles from the hoopR box score file:
+props (alternates by base market, PRA = points + rebounds + assists),
+moneyline, spread, total. A player who did not play is VOID (DraftKings gives
+no action); a player missing from the box score is UNRESOLVED for a manual
+check, never guessed. CANDIDATE_SUMMARY is flat 1 unit at the logged price
+with sample sizes; no probabilities. New tabs only: CANDIDATES,
+CANDIDATE_RESULTS, CANDIDATE_SUMMARY.
 
 Classify completed, credible exact-quote cases RECOMMENDED; supported cases with
 a named material injury, role or price condition CONDITIONAL; plausible but

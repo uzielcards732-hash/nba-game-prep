@@ -76,7 +76,7 @@ const SLATES = [];
 // These properties belong only to the separate NBA Script project.
 const MOBILE_SPREADSHEET_ID_PROPERTY = 'NBA_MOBILE_SPREADSHEET_ID';
 const MOBILE_WEB_TITLE = 'NBA Game Prep';
-const MOBILE_APP_BUILD = '2026.11.02-nba-usage.1';
+const MOBILE_APP_BUILD = '2026.11.02-nba-candidates.1';
 const MOBILE_EXPORT_FOLDER_PROPERTY = 'NBA_MOBILE_EXPORT_FOLDER_ID';
 const MOBILE_EXPORT_FOLDER_NAME = 'NBA Game Prep Analysis Exports';
 const MOBILE_LAST_EXPORT_PROPERTY = 'NBA_MOBILE_LAST_EXPORT';
@@ -332,7 +332,7 @@ function mobileIndexTable_() {
 }
 function mobileDashboard() {
   const now=Date.now(),rows=mobileIndexTable_();
-  return {title:MOBILE_WEB_TITLE,app_build:MOBILE_APP_BUILD,generated_utc:now_(),slates:SLATES.slice(),paid_actions_available:false,last_export:mobileLastExport_(),operation:mobileRunStatus_(),daily_games:nbaDailyGamesStatus_(),
+  return {title:MOBILE_WEB_TITLE,app_build:MOBILE_APP_BUILD,generated_utc:now_(),slates:SLATES.slice(),paid_actions_available:false,last_export:mobileLastExport_(),candidate_log:candidateLogStatus_(mobileLastExport_()),operation:mobileRunStatus_(),daily_games:nbaDailyGamesStatus_(),
     games:rows.filter(r=>String(r[IDX.EVENT]||'').trim()).map(r=>{
       const updated=mobileDateValue_(r[IDX.PROPS_UPDATED]),updatedMs=Date.parse(updated),kickoffUtc=mobileDateValue_(r[IDX.KICKOFF]),kickoffMs=Date.parse(kickoffUtc);
       const started=Number.isFinite(kickoffMs)&&kickoffMs<=now,linesUtc=mobileDateValue_(r[IDX.LINES_UPDATED]),priceFreshness=nbaGameOddsFresh_(r,new Date(now).toISOString()),time=nbaGameTime_(kickoffUtc,now);
@@ -383,6 +383,7 @@ function mobileLastExport_() {
     if(typeof value.analysis_manifest_filename==='string')out.analysis_manifest_filename=value.analysis_manifest_filename;
     if(typeof value.analysis_manifest_drive_url==='string')out.analysis_manifest_drive_url=value.analysis_manifest_drive_url;
     if(typeof value.app_build==='string')out.app_build=value.app_build;
+    if(typeof value.snapshot_id==='string')out.snapshot_id=value.snapshot_id;
     if(Array.isArray(value.analysis_eligible_event_ids))out.analysis_eligible_event_ids=value.analysis_eligible_event_ids.map(String);
     if(Array.isArray(value.analysis_ineligible_event_ids))out.analysis_ineligible_event_ids=value.analysis_ineligible_event_ids.map(String);
     if(Array.isArray(value.games))out.games=value.games.map(game=>({event_id:String(game.event_id||''),matchup:String(game.matchup||''),kickoff_et:String(game.kickoff_et||''),kickoff_utc:String(game.kickoff_utc||''),analysis_eligible:game.analysis_eligible===true}));
@@ -396,6 +397,7 @@ function saveMobileLastExport_(exported) {
   if(typeof exported.analysisManifestFilename==='string')value.analysis_manifest_filename=exported.analysisManifestFilename;
   if(typeof exported.analysisManifestDriveUrl==='string')value.analysis_manifest_drive_url=exported.analysisManifestDriveUrl;
   if(typeof exported.appBuild==='string')value.app_build=exported.appBuild;
+  if(typeof exported.snapshotId==='string')value.snapshot_id=exported.snapshotId;
   if(Array.isArray(exported.eligibleEventIds))value.analysis_eligible_event_ids=exported.eligibleEventIds.map(String);
   if(Array.isArray(exported.ineligibleEventIds))value.analysis_ineligible_event_ids=exported.ineligibleEventIds.map(String);
   if(Array.isArray(exported.games))value.games=exported.games.map(game=>({event_id:String(game.event_id||''),matchup:String(game.matchup||''),kickoff_et:String(game.kickoff_et||''),kickoff_utc:String(game.kickoff_utc||''),analysis_eligible:game.analysis_eligible===true}));
@@ -880,7 +882,7 @@ function compactMobileExport_(exported) {
   return {filename:exported.filename,driveUrl:exported.driveUrl,eventIds:exported.eventIds,exportTimestampUtc:exported.exportTimestampUtc,
     providerCoverageSummary:exported.providerCoverageSummary,warnings:exported.warnings,analysisManifestFilename:exported.analysisManifestFilename,
     analysisManifestDriveUrl:exported.analysisManifestDriveUrl,eligibleEventIds:exported.eligibleEventIds,
-    ineligibleEventIds:exported.ineligibleEventIds,appBuild:exported.appBuild,games:exported.games,receipt:exported.receipt};
+    ineligibleEventIds:exported.ineligibleEventIds,appBuild:exported.appBuild,snapshotId:exported.snapshotId,games:exported.games,receipt:exported.receipt};
 }
 function mobileExportReceipt_(exported,standardResult,alternateResult,providerResult,warnings) {
   const charges=(standardResult.charges||[]).concat(alternateResult.charges||[]),confirmed=charges.filter(charge=>Number.isFinite(charge.actual_credits));
@@ -3317,7 +3319,7 @@ function acknowledgeOverchargeHold() {
 const USAGE_CONTEXT_ENABLED = true;
 const USAGE_TEAM_GAMES = 5;
 const USAGE_SOURCE_PREFIX = 'https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_player_boxscores/player_box_';
-const USAGE_REQUIRED_COLUMNS = ['game_id','game_date','athlete_id','athlete_display_name','team_display_name','team_abbreviation','opponent_team_abbreviation','home_away','minutes',
+const USAGE_REQUIRED_COLUMNS = ['team_score','game_id','game_date','athlete_id','athlete_display_name','team_display_name','team_abbreviation','opponent_team_abbreviation','home_away','minutes',
   'field_goals_attempted','three_point_field_goals_made','three_point_field_goals_attempted','free_throws_attempted','offensive_rebounds','defensive_rebounds','rebounds','assists','turnovers','points','starter','did_not_play','reason'];
 // hoopR names a season by its end year: 2026-27 is 2027.
 function nbaSeasonEndYear_(ms) {const parts=Utilities.formatDate(new Date(ms),'America/New_York','yyyy-MM-dd').split('-').map(Number);return parts[1]>=8?parts[0]+1:parts[0];}
@@ -3404,4 +3406,310 @@ function nbaUsageContextForGames_(games,propMarkets,alternateMarkets,timestamp,b
 }
 function usageInstructions_() {
   return 'USAGE CONTEXT: usage_context lists, for every player with a prop line, his last five team games before tipoff from box scores: started, minutes, points, rebounds, assists, threes, shot and free-throw attempts, turnovers, usage_rate_pct, and his share of team rebounds and assists, or DID_NOT_PLAY with the listed reason. rest gives each team\'s rest days and back-to-back flag. It is history to verify against live news, not a projection; do not average it into an expected number. Rebound chances and potential assists are not in this source. A missing or UNAVAILABLE usage context is never a reason to pass.';
+}
+
+// -----------------------------------------------------------------------------
+// Phase 3: candidate log and free grading. The ChatGPT and Claude handoffs end
+// with an NBA_CANDIDATES_V1 JSON block. "Log AI picks" checks every row
+// against the exact snapshot's compact game files (all or nothing) and appends
+// to CANDIDATES. "Grade finished games — free" settles them from the same free
+// hoopR box score file. Flat 1 unit at the logged price; no probabilities.
+const CANDIDATE_LOG_ENABLED = true;
+const TAB_CANDIDATES = 'CANDIDATES';
+const TAB_CANDIDATE_RESULTS = 'CANDIDATE_RESULTS';
+const TAB_CANDIDATE_SUMMARY = 'CANDIDATE_SUMMARY';
+const CANDIDATE_BLOCK = 'NBA_CANDIDATES_V1';
+const CANDIDATE_CLASSES = ['RECOMMENDED','CONDITIONAL','WATCHLIST','PASS','UNASSESSED'];
+const CANDIDATE_HEADERS = ['Candidate ID','Revision','Supersedes Revision','Snapshot ID','Event ID','Matchup','Kickoff UTC','Market Key','Subject','Subject Team','Side','Line','Price','Book','Classification','Condition','Reason','Imported UTC','Timing Flag','Content Hash','Books At Line','Consensus No-vig %','Price Gap pp','Home Team','Away Team'];
+const CANDIDATE_RESULT_HEADERS = ['Candidate ID','Revision','Result','Actual Value','ESPN Athlete ID','Box Score File Through','Graded UTC','Detail'];
+const CANDIDATE_GAME_MARKETS = ['h2h','spreads','totals'];
+
+function candidateBlockInstructions_(snapshotId) {
+  return 'MACHINE-READABLE PICK LOG: After the full report, end with one fenced code block whose info string is '+CANDIDATE_BLOCK+' and which contains only JSON whose first key is "block":"'+CANDIDATE_BLOCK+'", so the label is copied with the code: {"block":"'+CANDIDATE_BLOCK+'","snapshot_id":"'+(snapshotId||'<snapshot_id from the manifest>')+'","rows":[...],"game_notes":[...]}. '+
+    'rows holds the same five classified candidates per eligible game shown in your game tables (never more than five per game), one object each: {"event_id","market_key","subject","side","line","price","book","classification","condition","reason"}. '+
+    'Copy event_id, market_key, line, and price exactly from the compact game file. subject: the player name exactly as exported; the team name for h2h and spreads; "Total" for totals. side: "Over" or "Under" for props and totals, the team name for h2h and spreads. '+
+    'line: the exported number, or null for h2h. book: "draftkings". classification: RECOMMENDED, CONDITIONAL, WATCHLIST, PASS, or UNASSESSED, matching the report. condition: required for CONDITIONAL, otherwise "". reason: one sentence of at most 200 characters. '+
+    'For an alternate rung use its exported *_alternate market_key and exact rung. If an eligible game has fewer than five candidates, add {"event_id","reason"} to game_notes. Never include a quote that is not in the export.';
+}
+function candidateHash_(text) {
+  let h1=2166136261,h2=2246822519;const s=String(text);
+  for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);h1=Math.imul(h1^c,16777619);h2=Math.imul(h2^c,3266489917);}
+  return ((h1>>>0).toString(16).padStart(8,'0')+(h2>>>0).toString(16).padStart(8,'0')).toUpperCase();
+}
+function candidateNumber_(value) {
+  if(value===null||value===undefined||value===''||String(value).toLowerCase()==='moneyline')return null;
+  const n=Number(value);return Number.isFinite(n)?n:NaN;
+}
+// Reads one balanced JSON object starting at s[start]; never throws.
+function candidateJsonAt_(s,start) {
+  let depth=0,inString=false,escaped=false;
+  for(let i=start;i<s.length;i++){
+    const c=s[i];
+    if(inString){if(escaped)escaped=false;else if(c==='\\')escaped=true;else if(c==='"')inString=false;continue;}
+    if(c==='"')inString=true;else if(c==='{')depth++;else if(c==='}'){depth--;if(depth===0){try{return {value:JSON.parse(s.slice(start,i+1))};}catch(ignore){return {invalid:true};}}}
+  }
+  return {incomplete:true};
+}
+function isCandidateObject_(value) {return !!value&&typeof value==='object'&&!Array.isArray(value)&&value.snapshot_id!==undefined&&Array.isArray(value.rows);}
+// The last object that is recognisably the pick block (snapshot_id plus rows),
+// so a phone copy of the code box without its label still works.
+function findCandidateObject_(variants) {
+  for(const v of variants){
+    const key=v.lastIndexOf('"snapshot_id"');if(key<0)continue;
+    for(let start=v.lastIndexOf('{',key),tries=0;start>=0&&tries<200;start=v.lastIndexOf('{',start-1),tries++){
+      const r=candidateJsonAt_(v,start);if(isCandidateObject_(r.value))return r.value;
+    }
+  }
+  return null;
+}
+function extractCandidateBlock_(text) {
+  const original=String(text||''),at=original.lastIndexOf(CANDIDATE_BLOCK);
+  // As pasted first; then with curly quotes straightened (phone keyboards swap them).
+  const variants=[original,original.replace(/[“”]/g,'"')];
+  const found=findCandidateObject_(variants);if(found)return {value:found};
+  if(at<0)return {error:'No '+CANDIDATE_BLOCK+' block was found. Paste the whole AI answer, including its final '+CANDIDATE_BLOCK+' block.'};
+  let incomplete=false;
+  for(const v of variants){
+    const s=v.slice(at),start=s.indexOf('{');if(start<0)return {error:'The '+CANDIDATE_BLOCK+' block has no JSON object.'};
+    const r=candidateJsonAt_(s,start);if(r.value!==undefined)return {value:r.value};if(r.incomplete)incomplete=true;
+  }
+  return {error:'The '+CANDIDATE_BLOCK+' block could not be read as JSON'+(incomplete?': it is incomplete.':'.')};
+}
+function candidateDriveJson_(file) {try{return JSON.parse(file.getBlob().getDataAsString());}catch(ignore){return null;}}
+// Load the manifest and compact game files for one snapshot, verifying every
+// file belongs to it. Never falls back to another export.
+function candidateSnapshot_(snapshotId) {
+  const id=String(snapshotId||'').trim();
+  if(!/^[0-9]{8,}-[A-Za-z0-9-]+$/.test(id))return {error:'snapshot_id is missing or malformed. Copy it exactly from the manifest.'};
+  const folder=analysisExportFolder_(),suffix='_'+id+'.json',latest=mobileLastExport_(),manifests=[];
+  const isManifest=name=>String(name).indexOf('analysis_manifest_')===0&&String(name).slice(-suffix.length)===suffix;
+  if(latest&&isManifest(latest.analysis_manifest_filename||'')){const it=folder.getFilesByName(latest.analysis_manifest_filename);while(it.hasNext())manifests.push(it.next());}
+  else if(typeof folder.searchFiles==='function'){const it=folder.searchFiles("title contains '"+id+"' and title contains 'analysis_manifest_'");while(it.hasNext()){const file=it.next();if(isManifest(file.getName()))manifests.push(file);}}
+  if(!manifests.length)return {error:'Snapshot '+id+' was not found in '+MOBILE_EXPORT_FOLDER_NAME+'. Use the snapshot_id from the manifest you analyzed.'};
+  if(manifests.length>1)return {error:'More than one manifest matches snapshot '+id+'.'};
+  const manifest=candidateDriveJson_(manifests[0]);
+  if(!manifest)return {error:'The manifest for snapshot '+id+' could not be read.'};
+  if(String(manifest.snapshot_id)!==id)return {error:'The manifest snapshot_id does not match '+id+'.'};
+  const games={};
+  for(const event of (manifest.events||[])){
+    const eventId=String(event.event_id||''),it=folder.getFilesByName(String(event.filename||'')),files=[];while(it.hasNext())files.push(it.next());
+    if(files.length!==1)return {error:'The compact game file for '+eventId+' is missing or duplicated for snapshot '+id+'.'};
+    const game=candidateDriveJson_(files[0]);
+    if(!game)return {error:'The compact game file for '+eventId+' could not be read.'};
+    if(String(game.snapshot_id)!==id||String(game.event_id)!==eventId)return {error:'The compact game file for '+eventId+' does not belong to snapshot '+id+'.'};
+    games[eventId]={event:event,game:game,eligible:event.analysis_eligible===true&&game.analysis_eligible===true};
+  }
+  return {id:id,manifest:manifest,games:games};
+}
+// The verified team abbreviation for a player, from the export's usage context.
+function candidatePlayerTeam_(game,player) {
+  const p=((game.usage_context||{}).players||[]).find(x=>normPlayerName_(x.player)===normPlayerName_(player));return p?String(p.team_abbreviation||''):'';
+}
+// Find the exact exported quote for one block row. Returns {quote} or {error}.
+function candidateQuote_(entry,row) {
+  const g=entry.game,key=String(row.market_key||'').trim(),subject=String(row.subject||'').trim(),side=String(row.side||'').trim(),line=candidateNumber_(row.line),price=candidateNumber_(row.price);
+  const label=String(row.event_id)+' '+key+' '+subject+' '+side+(line===null?'':' '+line)+' @ '+String(row.price);
+  if(!Number.isInteger(price)||Math.abs(price)<100)return {error:label+': price must be an exported American price such as -110 or 150.'};
+  if(Number.isNaN(line))return {error:label+': line must be the exported number.'};
+  if(row.book!==undefined&&row.book!==null&&row.book!==''&&String(row.book).toLowerCase()!==BOOK)return {error:label+': book must be '+BOOK+'.'};
+  const isBook=q=>String(q.bookmaker||BOOK)===BOOK,missing={error:label+': not found in the export (check line, price, side, and name).'},lower=v=>String(v||'').trim().toLowerCase(),samePlayer=q=>normPlayerName_(q.player)===normPlayerName_(subject)&&normPlayerName_(subject)!=='';
+  // The market consensus at logging time travels with the candidate (blank when absent).
+  const sidePricing=(q,canonicalSide)=>{const p=q.pricing||{};return (CANDIDATE_GAME_MARKETS.indexOf(key)>=0||/_alternate$/.test(key)?p:canonicalSide==='Over'?p.over:p.under)||{};};
+  const done=(q,canonicalSubject,team,canonicalSide)=>{const p=sidePricing(q,canonicalSide),v=x=>typeof x==='number'?x:'';
+    return {quote:{subject:canonicalSubject,team:team,side:canonicalSide,line:line===null?'':line,price:price,book:String(q.bookmaker||BOOK),books_at_line:v(p.books_at_line),consensus_no_vig_pct:v(p.consensus_no_vig_pct),price_gap_pp:v(p.price_gap_pp)}};};
+  if(CANDIDATE_GAME_MARKETS.indexOf(key)>=0){
+    const rows=(g.game_markets||[]).filter(q=>isBook(q)&&q.market_key===key&&Number(q.price)===price);
+    if(key==='totals'){const q=rows.find(q=>lower(q.selection)===lower(side)&&Number(q.line)===line);return q?done(q,'Total','',String(q.selection)):missing;}
+    if(lower(subject)!==lower(side))return {error:label+': for '+key+' the subject and side must both be the team name.'};
+    const q=rows.find(q=>lower(q.selection)===lower(side)&&(key==='h2h'?line===null:Number(q.line)===line));
+    return q?done(q,String(q.selection),String(q.selection),String(q.selection)):missing;
+  }
+  if(lower(side)!=='over'&&lower(side)!=='under')return {error:label+': side must be Over or Under.'};
+  const canonicalSide=lower(side)==='over'?'Over':'Under';
+  if(/_alternate$/.test(key)){
+    if(MOBILE_ALTERNATE_MARKETS.indexOf(key)<0)return {error:label+': market_key is not a supported export market.'};
+    const q=(g.alternate_prop_markets||[]).find(q=>isBook(q)&&q.market_key===key&&samePlayer(q)&&Number(q.line)===line&&lower(q.side)===lower(side)&&Number(q.price)===price);
+    return q?done(q,String(q.player),String(q.team||candidatePlayerTeam_(g,q.player)),canonicalSide):missing;
+  }
+  if(PROP_MARKETS.indexOf(key)<0)return {error:label+': market_key is not a supported export market.'};
+  const q=(g.prop_markets||[]).find(q=>isBook(q)&&q.market_key===key&&samePlayer(q)&&Number(q.line)===line&&Number(canonicalSide==='Over'?q.over_price:q.under_price)===price);
+  return q?done(q,String(q.player),String(q.team||candidatePlayerTeam_(g,q.player)),canonicalSide):missing;
+}
+function candidateFixRequest_(snapshotId,errors) {
+  return 'Your '+CANDIDATE_BLOCK+' block'+(snapshotId?' for snapshot '+snapshotId:'')+' was rejected for these reasons:\n'+errors.map(e=>'- '+e).join('\n')+
+    '\n\nRe-send only a corrected '+CANDIDATE_BLOCK+' block. Use only exact quotes from the compact game files and do not change your analysis.';
+}
+// Validate a pasted AI answer. Nothing is written unless every check passes.
+function validateCandidateImport_(text) {
+  const parsed=extractCandidateBlock_(text);if(parsed.error)return {errors:[parsed.error]};
+  const block=parsed.value||{},snap=candidateSnapshot_(block.snapshot_id);if(snap.error)return {errors:[snap.error]};
+  const rows=Array.isArray(block.rows)?block.rows:null;if(!rows||!rows.length)return {snapshot:snap.id,errors:['The block has no rows.']};
+  const errors=[],accepted=[],seen={},perEvent={},notes={};
+  (Array.isArray(block.game_notes)?block.game_notes:[]).forEach(n=>{if(n&&String(n.reason||'').trim())notes[String(n.event_id||'')]=String(n.reason).trim().slice(0,300);});
+  rows.forEach((row,i)=>{
+    row=row||{};const eventId=String(row.event_id||''),entry=snap.games[eventId],where='Row '+(i+1)+' ('+eventId+')';
+    if(!entry){errors.push(where+': event_id is not in this export.');return;}
+    if(!entry.eligible){errors.push(eventId+' is not eligible for analysis in this export; remove its rows.');return;}
+    const classification=String(row.classification||'').trim().toUpperCase(),condition=String(row.condition||'').trim(),reason=String(row.reason||'').trim();
+    if(CANDIDATE_CLASSES.indexOf(classification)<0){errors.push(where+': classification must be one of '+CANDIDATE_CLASSES.join(', ')+'.');return;}
+    if(classification==='CONDITIONAL'&&!condition){errors.push(where+': CONDITIONAL rows need a condition.');return;}
+    if(!reason){errors.push(where+': reason is required.');return;}
+    const found=candidateQuote_(entry,row);if(found.error){errors.push(found.error);return;}
+    const q=found.quote,identity=[snap.id,eventId,String(row.market_key).trim(),normPlayerName_(q.subject)||q.subject.toLowerCase(),q.side.toLowerCase(),q.line].join('|');
+    if(seen[identity]){errors.push(where+': duplicate row for the same quote.');return;}
+    seen[identity]=true;perEvent[eventId]=(perEvent[eventId]||0)+1;
+    const gameInfo=entry.game.game||{};
+    accepted.push({identity:identity,eventId:eventId,matchup:String(entry.event.matchup||gameInfo.matchup||''),kickoff:String(entry.event.kickoff_utc||gameInfo.kickoff_utc||''),home:String(gameInfo.home_team||''),away:String(gameInfo.away_team||''),
+      market:String(row.market_key).trim(),quote:q,classification:classification,condition:condition.slice(0,300),reason:reason.slice(0,300)});
+  });
+  Object.keys(snap.games).forEach(eventId=>{
+    if(!snap.games[eventId].eligible)return;const n=perEvent[eventId]||0;
+    if(n>5)errors.push(eventId+' has more than 5 rows; log exactly the five candidates from its game table.');
+    else if(n<5&&!notes[eventId]&&!errors.some(e=>e.indexOf(eventId)>=0))errors.push(eventId+' has '+n+' rows; each eligible game needs 5 rows or a game_notes reason.');
+  });
+  return {snapshot:snap.id,errors:errors,rows:accepted};
+}
+function importCandidates_(text) {
+  if(!CANDIDATE_LOG_ENABLED)fail_('Candidate log is not enabled in this app.');
+  const checked=validateCandidateImport_(text);
+  if(checked.errors.length){const errors=checked.errors.slice(0,25);return {ok:false,snapshot_id:checked.snapshot||'',errors:errors,fix_request:candidateFixRequest_(checked.snapshot,errors)};}
+  return run_('Candidate import',()=>{
+    const s=ensureTrackerSheet_(TAB_CANDIDATES,CANDIDATE_HEADERS),existing=read_(TAB_CANDIDATES,CANDIDATE_HEADERS.length),latest={};
+    existing.forEach(r=>{const id=String(r[0]),rev=Number(r[1]);if(!latest[id]||rev>latest[id].revision)latest[id]={revision:rev,hash:String(r[19])};});
+    const time=now_(),nowMs=Date.parse(time),out=[];let unchanged=0,revised=0,postKickoff=0;
+    checked.rows.forEach(c=>{
+      const id='C-'+candidateHash_(c.identity),hash='H-'+candidateHash_([c.classification,c.condition,c.reason,c.quote.price].join('|')),prior=latest[id];
+      if(prior&&prior.hash===hash){unchanged++;return;}
+      const kickoff=Date.parse(c.kickoff),timing=Number.isFinite(kickoff)&&nowMs<kickoff?'PRE_KICKOFF':'POST_KICKOFF';
+      if(prior)revised++;if(timing==='POST_KICKOFF')postKickoff++;
+      latest[id]={revision:prior?prior.revision+1:1,hash:hash};
+      out.push([id,latest[id].revision,prior?prior.revision:'',checked.snapshot,c.eventId,c.matchup,c.kickoff,c.market,c.quote.subject,c.quote.team,c.quote.side,c.quote.line,c.quote.price,c.quote.book,c.classification,c.condition,c.reason,time,timing,hash,c.quote.books_at_line,c.quote.consensus_no_vig_pct,c.quote.price_gap_pp,c.home,c.away]);
+    });
+    if(out.length)s.getRange(existing.length+2,1,out.length,CANDIDATE_HEADERS.length).setValues(out.map(r=>r.map(cell_)));
+    log_('Candidate import',checked.snapshot,'SUCCESS',out.length+' saved ('+revised+' revised, '+postKickoff+' after tipoff), '+unchanged+' unchanged; zero Odds API credits',0);
+    return {ok:true,snapshot_id:checked.snapshot,saved:out.length,revised:revised,unchanged:unchanged,post_kickoff:postKickoff};
+  });
+}
+function mobileImportCandidates(text) {return importCandidates_(String(text||'').slice(0,400000));}
+function candidateLogStatus_(latest) {
+  if(!CANDIDATE_LOG_ENABLED)return {enabled:false};
+  const snapshotId=latest&&latest.snapshot_id||'',out={enabled:true,snapshot_id:snapshotId,logged:false,rows:0};
+  if(!snapshotId)return out;
+  try{
+    const sheet=spreadsheet_().getSheetByName(TAB_CANDIDATES);if(!sheet||sheet.getLastRow()<2)return out;
+    const ids={};sheet.getRange(2,1,sheet.getLastRow()-1,4).getValues().forEach(r=>{if(String(r[3])===snapshotId)ids[String(r[0])]=true;});
+    out.rows=Object.keys(ids).length;out.logged=out.rows>0;
+  }catch(ignore){}
+  return out;
+}
+function candidateRecords_() {
+  return read_(TAB_CANDIDATES,CANDIDATE_HEADERS.length).map(r=>({id:String(r[0]),revision:Number(r[1]),snapshot:String(r[3]),eventId:String(r[4]),matchup:String(r[5]),kickoff:cellText_(r[6]),market:String(r[7]),subject:String(r[8]),team:String(r[9]),side:String(r[10]),line:r[11],price:Number(r[12]),classification:String(r[14]),timing:String(r[18]),gap:r[22]===''||r[22]===null||r[22]===undefined?null:Number(r[22]),home:String(r[23]||''),away:String(r[24]||'')}));
+}
+function candidateResults_() {
+  const latest={};read_(TAB_CANDIDATE_RESULTS,CANDIDATE_RESULT_HEADERS.length).forEach(r=>{latest[String(r[0])+'|'+Number(r[1])]={result:String(r[2]),stat:r[3]};});return latest;
+}
+// The latest pre-tipoff revision of each candidate that still needs a final result.
+function candidatesToGrade_() {
+  const chosen={},results=candidateResults_();
+  candidateRecords_().forEach(c=>{if(!c.id||c.timing!=='PRE_KICKOFF')return;if(!chosen[c.id]||c.revision>chosen[c.id].revision)chosen[c.id]=c;});
+  return Object.keys(chosen).map(id=>chosen[id]).filter(c=>{if(c.classification==='UNASSESSED')return false;const r=results[c.id+'|'+c.revision];return !r||r.result==='UNRESOLVED';});
+}
+// The final box score of one game: both teams' rows on the tipoff date
+// (Eastern). hoopR publishes a game only once it is final.
+function nbaFinalGame_(box,home,away,kickoffUtc) {
+  const dateKey=Utilities.formatDate(new Date(Date.parse(kickoffUtc)),'America/New_York','yyyy-MM-dd');
+  const rows=box.rows.filter(r=>r.game_date===dateKey&&(String(r.team_display_name)===home||String(r.team_display_name)===away));
+  const ids=[...new Set(rows.map(r=>r.game_id))];
+  if(ids.length!==1)return null;
+  const gameRows=rows.filter(r=>r.game_id===ids[0]),homeRow=gameRows.find(r=>String(r.team_display_name)===home),awayRow=gameRows.find(r=>String(r.team_display_name)===away);
+  if(!homeRow||!awayRow)return null;
+  const homeScore=usageNumber_(homeRow.team_score),awayScore=usageNumber_(awayRow.team_score);
+  if(homeScore===null||awayScore===null)return null;
+  return {game_id:ids[0],date:dateKey,home:home,away:away,home_score:homeScore,away_score:awayScore,rows:gameRows};
+}
+function gradeTeamSelection_(c,game) {
+  const line=Number(c.line);
+  if(c.market==='totals'){
+    const total=game.home_score+game.away_score,side=String(c.side).toLowerCase();if(!Number.isFinite(line)||(side!=='over'&&side!=='under'))return {error:'BAD_TOTAL_ROW'};
+    return {stat:total,result:total===line?'PUSH':((side==='over')===(total>line)?'WIN':'LOSS'),detail:'final total '+total+' versus '+c.side+' '+line};
+  }
+  const team=String(c.side),isHome=team===game.home,isAway=team===game.away;if(!isHome&&!isAway)return {error:'TEAM_NOT_IN_GAME: '+team};
+  const mine=isHome?game.home_score:game.away_score,theirs=isHome?game.away_score:game.home_score;
+  if(c.market==='h2h')return {stat:mine+'-'+theirs,result:mine===theirs?'PUSH':mine>theirs?'WIN':'LOSS',detail:team+' '+mine+'-'+theirs+' moneyline'};
+  if(!Number.isFinite(line))return {error:'BAD_SPREAD_ROW'};
+  const adjusted=mine+line;return {stat:mine+'-'+theirs,result:adjusted===theirs?'PUSH':adjusted>theirs?'WIN':'LOSS',detail:team+' '+mine+'-'+theirs+' with '+line};
+}
+const NBA_STAT_FOR_MARKET = {player_points:['points'],player_rebounds:['rebounds'],player_assists:['assists'],player_threes:['three_point_field_goals_made'],player_points_rebounds_assists:['points','rebounds','assists']};
+// One selection (market, subject, side, line) against a final game. Shared by AI
+// picks and logged bets so both settle the same way. A player missing from the
+// box score is UNRESOLVED for a manual check, never guessed.
+function settleSelection_(c,game) {
+  if(CANDIDATE_GAME_MARKETS.indexOf(c.market)>=0)return {settlement:gradeTeamSelection_(c,game),playerId:''};
+  const base=String(c.market).replace(/_alternate$/,''),cols=NBA_STAT_FOR_MARKET[base];if(!cols)return {settlement:{error:'MARKET_NOT_GRADED: '+c.market},playerId:''};
+  const matches=game.rows.filter(r=>normPlayerName_(r.athlete_display_name)===normPlayerName_(c.subject)),ids=[...new Set(matches.map(r=>String(r.athlete_id)))];
+  if(!ids.length)return {settlement:{error:'PLAYER_NOT_IN_BOX_SCORE: '+c.subject},playerId:''};
+  if(ids.length>1)return {settlement:{error:'AMBIGUOUS_PLAYER_NAME: '+c.subject},playerId:''};
+  const r=matches[0];
+  // DraftKings gives no action on a player prop when the player does not play.
+  if(usageBool_(r.did_not_play)||!r.played)return {settlement:{stat:'',result:'VOID',detail:'did not play'+(r.reason?' ('+r.reason+')':'')+'; player props have no action'},playerId:String(r.athlete_id)};
+  const values=cols.map(col=>usageNumber_(r[col]));if(values.some(v=>v===null))return {settlement:{error:'STAT_MISSING: '+cols.join('+')},playerId:String(r.athlete_id)};
+  const stat=values.reduce((a,b)=>a+b,0),line=Number(c.line),side=String(c.side).toLowerCase();
+  if(!Number.isFinite(line)||(side!=='over'&&side!=='under'))return {settlement:{error:'BAD_PROP_ROW'},playerId:String(r.athlete_id)};
+  return {settlement:{stat:stat,result:stat===line?'PUSH':((side==='over')===(stat>line)?'WIN':'LOSS'),detail:base+' '+stat+' versus '+c.side+' '+line},playerId:String(r.athlete_id)};
+}
+function candidateSeason_(c) {return nbaSeasonEndYear_(Date.parse(c.kickoff));}
+// Grades every pending candidate whose game is final in the box score file.
+// A game not yet published is left pending, never forced.
+function gradeCandidates_(boxBySeason) {
+  if(!CANDIDATE_LOG_ENABLED)fail_('Candidate log is not enabled in this app.');
+  return run_('Candidate grading',()=>{
+    const now=Date.now(),pending=candidatesToGrade_().filter(c=>{const k=Date.parse(c.kickoff);return Number.isFinite(k)&&k<now-3*3600000;});
+    const resultSheet=ensureTrackerSheet_(TAB_CANDIDATE_RESULTS,CANDIDATE_RESULT_HEADERS),time=now_(),out=[],boxes=boxBySeason||{};let graded=0,unresolved=0,notFinal=0;
+    pending.forEach(c=>{
+      const season=candidateSeason_(c);if(!boxes[season])boxes[season]=nbaLoadBoxScores_(season);
+      const box=boxes[season],game=nbaFinalGame_(box,c.home,c.away,c.kickoff);if(!game){notFinal++;return;}
+      const settled=settleSelection_(c,game),s=settled.settlement;
+      if(s.error){unresolved++;out.push([c.id,c.revision,'UNRESOLVED','',settled.playerId,box.source.last_game_date_in_file,time,'game '+game.game_id+'; '+s.error]);return;}
+      graded++;out.push([c.id,c.revision,s.result,s.stat,settled.playerId,box.source.last_game_date_in_file,time,'game '+game.game_id+'; '+s.detail]);
+    });
+    if(out.length)resultSheet.getRange(resultSheet.getLastRow()+1,1,out.length,CANDIDATE_RESULT_HEADERS.length).setValues(out.map(r=>r.map(cell_)));
+    const summary=writeCandidateSummary_();
+    log_('Candidate grading','','SUCCESS',graded+' graded, '+unresolved+' unresolved, '+notFinal+' not final yet; hoopR box scores; zero Odds API credits',0);
+    return {graded:graded,unresolved:unresolved,not_final:notFinal,summary:summary};
+  });
+}
+function mobileGradeCandidates() {return gradeCandidates_();}
+function mobileCandidateSummary() {if(!CANDIDATE_LOG_ENABLED)fail_('Candidate log is not enabled in this app.');return computeCandidateSummary_();}
+// Market consensus gap at logging time; a reference split, not a forecast.
+function candidateGapBand_(gap) {
+  if(gap===null||!Number.isFinite(gap))return 'No consensus';
+  return gap>=2?'DK +2 pp or more vs market':gap>0?'DK 0 to +2 pp vs market':gap>-2?'DK 0 to -2 pp vs market':'DK -2 pp or worse vs market';
+}
+function candidatePriceBand_(price) {
+  const p=Number(price);
+  if(p<=-300)return '-300 or shorter';if(p<=-200)return '-299 to -200';if(p<=-150)return '-199 to -150';if(p<0)return '-149 to -100';
+  if(p<150)return '+100 to +149';if(p<300)return '+150 to +299';return '+300 or longer';
+}
+function candidateSideGroup_(c) {return CANDIDATE_GAME_MARKETS.indexOf(c.market)>=0&&c.market!=='totals'?'Team':c.side;}
+// Results joined to the exact graded revision. Flat 1 unit at the logged
+// price; no probabilities or confidence labels are produced.
+function computeCandidateSummary_() {
+  const results=candidateResults_(),graded=[];
+  candidateRecords_().forEach(c=>{const r=results[c.id+'|'+c.revision];if(r&&r.result!=='UNRESOLVED')graded.push({c:c,result:r.result});});
+  const groups=[],add=(type,keyOf)=>{
+    const by={};graded.forEach(g=>{const key=keyOf(g.c);(by[key]||(by[key]=[])).push(g);});
+    Object.keys(by).sort().forEach(key=>{
+      const list=by[key],count=r=>list.filter(g=>g.result===r).length,wins=count('WIN'),losses=count('LOSS');
+      const units=money_(list.reduce((sum,g)=>sum+(g.result==='WIN'?americanToDecimal_(g.c.price)-1:g.result==='LOSS'?-1:0),0)),kickoffs=list.map(g=>g.c.kickoff).sort();
+      groups.push({type:type,group:key,graded:list.length,wins:wins,losses:losses,pushes:count('PUSH'),voids:count('VOID'),hit_rate:wins+losses?Math.round(wins/(wins+losses)*1000)/1000:null,units:units,units_per_bet:money_(units/list.length),first_kickoff_utc:kickoffs[0],last_kickoff_utc:kickoffs[kickoffs.length-1]});
+    });
+  };
+  add('All',()=>'All graded candidates');add('Classification',c=>c.classification);add('Market',c=>c.market);add('Side',candidateSideGroup_);add('Price band',c=>candidatePriceBand_(c.price));add('Price gap vs market',c=>candidateGapBand_(c.gap));
+  const kickoffs=graded.map(g=>g.c.kickoff).sort();
+  return {graded:graded.length,first_kickoff_utc:kickoffs[0]||'',last_kickoff_utc:kickoffs[kickoffs.length-1]||'',groups:groups};
+}
+function writeCandidateSummary_() {
+  const s=computeCandidateSummary_(),headers=['NBA CANDIDATE RESULTS','Coverage: '+(s.first_kickoff_utc||'none')+' to '+(s.last_kickoff_utc||'none'),'Graded candidates: '+s.graded,'Flat 1 unit at the logged price; sample sizes shown; no probabilities.','','','','','','','',''];
+  const rows=[['Group Type','Group','Graded','Wins','Losses','Pushes','Voids','Hit Rate','Units','Units per Bet','First Tipoff UTC','Last Tipoff UTC']].concat(s.groups.map(g=>[g.type,g.group,g.graded,g.wins,g.losses,g.pushes,g.voids,g.hit_rate===null?'':g.hit_rate,g.units,g.units_per_bet,g.first_kickoff_utc,g.last_kickoff_utc]));
+  write_(TAB_CANDIDATE_SUMMARY,headers,rows);return s;
 }

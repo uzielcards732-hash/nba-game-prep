@@ -2,6 +2,30 @@
 
 ## Current state
 
+**Phase 3 part 2, candidate log and free grading (2026-11-02, cloud session,
+branch `claude/phase3-candidates` from Phase 3 part 1, build
+`2026.11.02-nba-candidates.1`, LOCAL ONLY, NOT DEPLOYED; live is version 16):**
+
+- ChatGPT and Claude handoffs end with an `NBA_CANDIDATES_V1` block (phone
+  copy kept identical to `candidateBlockInstructions_` by a test); Perplexity
+  unchanged. The export pointer now carries `snapshot_id` (reader bug fixed).
+- Phone: "Log AI picks — free" on the result screen and in Settings (paste,
+  all-or-nothing check against the exact snapshot's compact files, copyable
+  fix request on rejection); "Grade finished games — free" in Settings with a
+  results summary.
+- New tabs: CANDIDATES (25 columns: NFL's 23 plus Home Team, Away Team),
+  CANDIDATE_RESULTS (Candidate ID, Revision, Result, Actual Value, ESPN Athlete
+  ID, Box Score File Through, Graded UTC, Detail), CANDIDATE_SUMMARY. No
+  existing tab changed.
+- Grading from the hoopR box score file (games appear only when final): props
+  by base market, PRA as a sum, moneyline, spread, total; DNP = VOID (no
+  action); missing player = UNRESOLVED; not yet published = pending. Real data
+  check on 2026-11-01 Celtics 108, Magic 97: six sample picks graded correctly.
+- Offline: 13 suites pass; new `test-nba-candidates.cjs` 14 (all 14 fail on
+  live v16 source).
+- Credits: 0. Verification needs no paid test: paste one real AI answer, then
+  grade after the games are final and hand-check a few results.
+
 **Phase 3 part 1, usage context (2026-11-02, cloud session, branch
 `claude/phase3-usage` from Phase 2, build `2026.11.02-nba-usage.1`):
 DEPLOYED as version 16, commit `7f75561`, owner "deploy now", deploy button
@@ -381,3 +405,4 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Phase 2 deployed as version 15 (run 41523700337); the verify step read a stale listing; check run 41524481031 confirmed v15 byte-match and tagged nba-v15.
 - 2026-11-02: Phase 3 part 1 built on `claude/phase3-usage`: usage context from hoopR box scores, rest and back to back flags; deploy verify retries the listing. 12 suites pass. Local only.
 - 2026-11-02: Phase 3 part 1 deployed as version 16 via the deploy button (run 41525521158); all steps passed; tag nba-v16. Supervised paid test pending.
+- 2026-11-02: Phase 3 part 2 built on `claude/phase3-candidates`: NBA_CANDIDATES_V1 pick log, free grading from hoopR box scores, summary. 13 suites pass. Local only.

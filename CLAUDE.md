@@ -65,6 +65,8 @@ Run from the repo root; all are offline and mock only.
   comparison, MARKET_CONSENSUS and price_gap_pp, overcharge hold)
 - `node outputs/test-nba-usage.cjs` (Phase 3: usage context from hoopR box
   scores, rest and back to back flags)
+- `node outputs/test-nba-candidates.cjs` (Phase 3: NBA_CANDIDATES_V1 pick log
+  and free grading from hoopR box scores)
 - `node deploy/test.cjs` (GitHub deploy button checks)
 
 `outputs/nba-mock-env.cjs` is the shared offline mock of Sheets, Drive,

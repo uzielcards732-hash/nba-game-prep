@@ -84,8 +84,11 @@ break-even and failure paths; easier lines and shorter prices are not inherently
 better or worse. Never invent probabilities or claim a proven edge.
 When an export carries market consensus pricing, state price_gap_pp
 (consensus no-vig minus the DraftKings break-even) or its consensus_note for
-every shortlisted pick. A pick with a negative gap needs a specific stated
-reason to remain RECOMMENDED. The gap is a market reference, not a forecast
+every shortlisted pick. The break-even includes the DraftKings margin, so a
+fairly priced -110/-110 market scores about -2.4 (50.00 - 52.38) and most gaps
+are negative. Owner set 2026-11-02: a pick with a gap below -2.5 (DraftKings
+pricier than a standard -110 market) needs a specific stated reason to remain
+RECOMMENDED. The gap is a market reference, not a forecast
 or an edge claim; a missing consensus or Fanatics price is never a refusal
 reason, and the gap alone never decides a pick. DraftKings stays the quoted
 price; name Fanatics when it is better at the identical line.

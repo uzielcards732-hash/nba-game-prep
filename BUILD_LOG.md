@@ -25,6 +25,17 @@ branch `claude/phase3-candidates` from Phase 3 part 1, build
   live v16 source).
 - Credits: 0. Verification needs no paid test: paste one real AI answer, then
   grade after the games are final and hand-check a few results.
+- Gap rule changed (owner, 2026-11-02, build `2026.11.02-nba-candidates.2`):
+  only a gap below -2.5 needs a stated reason to stay RECOMMENDED, because a
+  fair -110/-110 market already scores 50.00 - 52.38 = -2.38.
+- Supervised paid test on v16 (2026-11-02 22:56Z, snapshot
+  `20261102225616437-mvzutxds-pel64xa1jj`): 7 games, 35 credits = 7 x 5, KEY 4,
+  no overcharge hold, no ledger warning: ten books cost one region. Usage
+  context OK in 7 of 7 games (81 players matched, 2 NO_BOX_SCORE_ROWS).
+  Consensus on 612 of 696 DraftKings sides (88%); 601 of 612 gaps negative
+  (range -7.86 to +1.11). Fanatics NOT_OFFERED on all 696 prop sides (no NBA
+  props from Fanatics, as NFL saw). Game lines were not refreshed, so game
+  prices were stale; props were fine.
 
 **Phase 3 part 1, usage context (2026-11-02, cloud session, branch
 `claude/phase3-usage` from Phase 2, build `2026.11.02-nba-usage.1`):
@@ -406,3 +417,4 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Phase 3 part 1 built on `claude/phase3-usage`: usage context from hoopR box scores, rest and back to back flags; deploy verify retries the listing. 12 suites pass. Local only.
 - 2026-11-02: Phase 3 part 1 deployed as version 16 via the deploy button (run 41525521158); all steps passed; tag nba-v16. Supervised paid test pending.
 - 2026-11-02: Phase 3 part 2 built on `claude/phase3-candidates`: NBA_CANDIDATES_V1 pick log, free grading from hoopR box scores, summary. 13 suites pass. Local only.
+- 2026-11-02: Supervised paid test on v16 passed (7 games, 35 credits); Fanatics posts no NBA props; gap reason threshold set to -2.5 by owner.

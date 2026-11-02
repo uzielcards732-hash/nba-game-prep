@@ -76,7 +76,7 @@ const SLATES = [];
 // These properties belong only to the separate NBA Script project.
 const MOBILE_SPREADSHEET_ID_PROPERTY = 'NBA_MOBILE_SPREADSHEET_ID';
 const MOBILE_WEB_TITLE = 'NBA Game Prep';
-const MOBILE_APP_BUILD = '2026.11.02-nba-candidates.1';
+const MOBILE_APP_BUILD = '2026.11.02-nba-candidates.2';
 const MOBILE_EXPORT_FOLDER_PROPERTY = 'NBA_MOBILE_EXPORT_FOLDER_ID';
 const MOBILE_EXPORT_FOLDER_NAME = 'NBA Game Prep Analysis Exports';
 const MOBILE_LAST_EXPORT_PROPERTY = 'NBA_MOBILE_LAST_EXPORT';
@@ -3283,7 +3283,7 @@ function consensusGameSummary_(cIndex,g,gameMarkets,propMarkets,alternateMarkets
   return {reference_books_requested:referenceBooks_(),min_books:CONSENSUS_MIN_BOOKS,freshness_minutes:COMPARE_FRESHNESS_MINUTES,families:{game:family('game'),standard:family('standard'),alternate:family('alternate')},draftkings_sides:sides,sides_with_consensus:withConsensus};
 }
 function consensusInstructions_() {
-  return 'MARKET CONSENSUS: Pricing also compares each DraftKings quote with up to eight reference books that posted the identical player or team, market, side, and line within 15 minutes of DraftKings; books_at_line counts them. consensus_no_vig_pct is the median no-vig price across the reference books that posted both sides (at least 3 are needed; otherwise consensus_note says why). price_gap_pp is consensus_no_vig_pct minus break_even_pct: positive means DraftKings pays more than the other books imply, negative means it pays less. It is a market reference, not a forecast, a probability, or an edge claim. For every shortlisted pick, state price_gap_pp or its consensus_note. A pick with a negative price_gap_pp needs a specific stated reason to remain RECOMMENDED. A missing consensus is never a reason to pass, and the gap alone never decides a pick. best_reference_price and best_reference_book are context only: the owner bets only at DraftKings and Fanatics.';
+  return 'MARKET CONSENSUS: Pricing also compares each DraftKings quote with up to eight reference books that posted the identical player or team, market, side, and line within 15 minutes of DraftKings; books_at_line counts them. consensus_no_vig_pct is the median no-vig price across the reference books that posted both sides (at least 3 are needed; otherwise consensus_note says why). price_gap_pp is consensus_no_vig_pct minus break_even_pct: positive means DraftKings pays more than the other books imply, negative means it pays less. It is a market reference, not a forecast, a probability, or an edge claim. For every shortlisted pick, state price_gap_pp or its consensus_note. Because break_even_pct includes the DraftKings margin, a fairly priced -110/-110 market scores about -2.4 (50.00 minus 52.38), so most gaps are negative. A pick with price_gap_pp below -2.5 (DraftKings pricier than a standard -110 market) needs a specific stated reason to remain RECOMMENDED. A missing consensus is never a reason to pass, and the gap alone never decides a pick. best_reference_price and best_reference_book are context only: the owner bets only at DraftKings and Fanatics.';
 }
 function pricingInstructions_() {return comparisonInstructions_()+' '+consensusInstructions_();}
 

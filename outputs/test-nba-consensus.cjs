@@ -158,7 +158,8 @@ test('handoffs carry the pricing rules: the export instructions and the phone re
  assert.match(payload.pricing_instructions,/price_gap_pp is consensus_no_vig_pct minus break_even_pct/);assert.match(payload.pricing_instructions,/never a reason to pass/);
  const compact=plain(env.run('compactEventAnalysisPayload_')(payload,payload.games[0],payload.export_timestamp_utc,{filename:'a',drive_url:'b'}));assert.equal(compact.pricing_instructions,payload.pricing_instructions);
  assert.ok(compact.prop_markets.length===0||compact.prop_markets[0].pricing,'compact quotes keep their pricing');
- assert.match(mobile,/For every shortlisted pick, state price_gap_pp or its consensus_note\. A pick with a negative price_gap_pp needs a specific stated reason to remain RECOMMENDED\./);
+ assert.match(mobile,/For every shortlisted pick, state price_gap_pp or its consensus_note\..*A pick with price_gap_pp below -2\.5 \(DraftKings pricier than a standard -110 market\) needs a specific stated reason to remain RECOMMENDED\./);
+ assert.match(payload.pricing_instructions,/below -2\.5/);assert.doesNotMatch(mobile+payload.pricing_instructions,/negative price_gap_pp needs/);
  assert.match(mobile,/the gap alone never decides a pick/);
 });
 console.log('\n'+count+' passed, '+failures.length+' failed (NBA Phase 2 price comparison; offline, mock-only, zero provider credits).');

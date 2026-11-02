@@ -4,7 +4,10 @@
 
 **Phase 3 part 2, candidate log and free grading (2026-11-02, cloud session,
 branch `claude/phase3-candidates` from Phase 3 part 1, build
-`2026.11.02-nba-candidates.1`, LOCAL ONLY, NOT DEPLOYED; live is version 16):**
+`2026.11.02-nba-candidates.2`): DEPLOYED as version 17, commit `2082e2a`,
+owner "deploy", deploy button run 41541791448; every step passed including
+the post-deploy byte-match; tag `nba-v17`. Rollback: version 16. Pending: one
+real AI answer logged, then graded tomorrow and hand-checked.**
 
 - ChatGPT and Claude handoffs end with an `NBA_CANDIDATES_V1` block (phone
   copy kept identical to `candidateBlockInstructions_` by a test); Perplexity
@@ -418,3 +421,4 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Phase 3 part 1 deployed as version 16 via the deploy button (run 41525521158); all steps passed; tag nba-v16. Supervised paid test pending.
 - 2026-11-02: Phase 3 part 2 built on `claude/phase3-candidates`: NBA_CANDIDATES_V1 pick log, free grading from hoopR box scores, summary. 13 suites pass. Local only.
 - 2026-11-02: Supervised paid test on v16 passed (7 games, 35 credits); Fanatics posts no NBA props; gap reason threshold set to -2.5 by owner.
+- 2026-11-02: Phase 3 part 2 (pick log, grading, -2.5 gap rule) deployed as version 17 (run 41541791448); tag nba-v17. Phase 4 (bet log) not started.

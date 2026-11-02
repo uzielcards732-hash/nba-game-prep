@@ -76,7 +76,7 @@ const SLATES = [];
 // These properties belong only to the separate NBA Script project.
 const MOBILE_SPREADSHEET_ID_PROPERTY = 'NBA_MOBILE_SPREADSHEET_ID';
 const MOBILE_WEB_TITLE = 'NBA Game Prep';
-const MOBILE_APP_BUILD = '2026.11.02-nba-consensus.1';
+const MOBILE_APP_BUILD = '2026.11.02-nba-usage.1';
 const MOBILE_EXPORT_FOLDER_PROPERTY = 'NBA_MOBILE_EXPORT_FOLDER_ID';
 const MOBILE_EXPORT_FOLDER_NAME = 'NBA Game Prep Analysis Exports';
 const MOBILE_LAST_EXPORT_PROPERTY = 'NBA_MOBILE_LAST_EXPORT';
@@ -2306,7 +2306,7 @@ function compactEventAnalysisPayload_(payload,game,timestamp,auditExport) {
     compactGame.odds={actionable:false,reason:old.freshness_reason||'Game prices are missing or older than 90 minutes. Refresh game odds with separate approval.',lines_updated_utc:old.lines_updated_utc||'',bookmaker:old.bookmaker||BOOK};
   }
   return {schema_version:1,kind:'nba_compact_game_analysis',sport:SPORT,league:'NBA',app_build:MOBILE_APP_BUILD,snapshot_id:payload.snapshot_id,export_timestamp_utc:timestamp,event_id:eventId,analysis_eligible:eligibility.eligible,ineligible_reason:eligibility.reason,
-    audit_export:auditExport,pricing_instructions:payload.pricing_instructions||'',game:compactGame,game_markets:gameMarkets,prop_markets:propMarkets,alternate_prop_markets:alternateMarkets,roster_rows:roster,pending_legs:pendingLegs,
+    audit_export:auditExport,pricing_instructions:payload.pricing_instructions||'',usage_instructions:payload.usage_instructions||'',usage_context:(payload.usage_context||{})[eventId]||null,game:compactGame,game_markets:gameMarkets,prop_markets:propMarkets,alternate_prop_markets:alternateMarkets,roster_rows:roster,pending_legs:pendingLegs,
     provider_coverage:coverage,cross_provider_diagnostics:diagnostics,provider_usage:payload.provider_usage,
     data_quality:{props_market_count:propMarkets.length,alternate_prop_market_count:alternateMarkets.length,stale_prop_market_count:allProps.length-propMarkets.length,stale_alternate_market_count:allAlternates.length-alternateMarkets.length,roster_row_count:roster.length,pending_leg_count:pendingLegs.length,
       duplicate_provider_observations:Number(diagnostics.same_bookmaker_duplicate_observation_count||0),note:'Raw provider quotes and redundant sheet rows remain only in the audit export.'}};
@@ -2396,6 +2396,7 @@ function buildAnalysisExport_(games,timestamp,providerUsage) {
     injury_pull:{status:'SKIPPED',succeeded_on_this_run:false,skipped_on_this_run:true,detail:'Analysis export is sheet-only and did not call Pull Injuries.'},
     game_markets:gameMarkets,props_rows:propRows.map(r=>exportRowObject_(propHeaders,r)),prop_markets:propMarkets,
     alternate_props_rows:alternateRows.map(r=>exportRowObject_(alternateHeaders,r)),alternate_prop_markets:alternateMarkets,pricing_instructions:pricingInstructions_(),bookmakers_requested:requestedBooks_(),
+    usage_context:nbaUsageContextForGames_(exportedGames,propMarkets,alternateMarkets,timestamp),usage_instructions:usageInstructions_(),
     roster_rows:rosterRows.map(r=>exportRowObject_(ROSTER_HEADERS,r)),pending_legs:pendingLegs.map(r=>exportRowObject_(legsTable.headers,r)),
     provider_quotes:providerQuotes,provider_coverage:providerCoverage,provider_coverage_summary:providerCoverageSummary,cross_provider_diagnostics:crossProviderDiagnostics,
     provider_usage:providerUsage||{odds_api:{status:'NOT_RUN'},sports_game_odds:{scope:'NBA coverage test not yet approved',status:'DISABLED_PENDING_COVERAGE_TEST'}},
@@ -3304,4 +3305,103 @@ function acknowledgeOverchargeHold() {
   const hold=paidHold_();PropertiesService.getScriptProperties().deleteProperty(PAID_HOLD_PROPERTY);
   log_('Paid request hold','','ACKNOWLEDGED',hold?hold.message:'No hold was set.',0);
   const result={cleared:Boolean(hold)};console.log(JSON.stringify(result));return result;
+}
+
+// -----------------------------------------------------------------------------
+// Phase 3: recent usage context. Free, no Odds API credits: one download of
+// the season's player box scores published by sportsdataverse hoopR (ESPN
+// box scores, updated daily). For every player with a prop line it lists his
+// last five team games before tipoff, game by game, and each team's rest and
+// back-to-back status. History only: no averages, rates or expected numbers.
+// Any download or parse failure marks the game UNAVAILABLE; it never blocks.
+const USAGE_CONTEXT_ENABLED = true;
+const USAGE_TEAM_GAMES = 5;
+const USAGE_SOURCE_PREFIX = 'https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_player_boxscores/player_box_';
+const USAGE_REQUIRED_COLUMNS = ['game_id','game_date','athlete_id','athlete_display_name','team_display_name','team_abbreviation','opponent_team_abbreviation','home_away','minutes',
+  'field_goals_attempted','three_point_field_goals_made','three_point_field_goals_attempted','free_throws_attempted','offensive_rebounds','defensive_rebounds','rebounds','assists','turnovers','points','starter','did_not_play','reason'];
+// hoopR names a season by its end year: 2026-27 is 2027.
+function nbaSeasonEndYear_(ms) {const parts=Utilities.formatDate(new Date(ms),'America/New_York','yyyy-MM-dd').split('-').map(Number);return parts[1]>=8?parts[0]+1:parts[0];}
+function nbaUsageSourceUrl_(season) {return USAGE_SOURCE_PREFIX+season+'.csv';}
+function usageNumber_(v) {const s=String(v===undefined||v===null?'':v).trim();if(s==='')return null;const n=Number(s);return Number.isFinite(n)?n:null;}
+function usageBool_(v) {return String(v).trim().toLowerCase()==='true';}
+function usagePct_(part,whole) {return part===null||!whole?null:Math.round(part/whole*1000)/10;}
+function nbaDaysBetween_(a,b) {return Math.round((Date.parse(b+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/86400000);}
+// Downloads and indexes the season file. Returns {rows, teams, source}.
+function nbaLoadBoxScores_(season) {
+  const url=nbaUsageSourceUrl_(season),response=request_(url,'NBA box scores',false,'',false);
+  let table;try{table=Utilities.parseCsv(response.text);}catch(e){fail_('The NBA box score file could not be read.');}
+  if(!table||table.length<2)fail_('The NBA box score file has no rows for season '+season+'.');
+  const map=headerMap_(table[0].map(String),USAGE_REQUIRED_COLUMNS,'NBA box scores'),rows=[],teams={};let lastDate='';
+  table.slice(1).forEach(r=>{
+    const row={};USAGE_REQUIRED_COLUMNS.forEach(c=>row[c]=r[map[c]]);
+    row.game_id=String(row.game_id);row.game_date=String(row.game_date).slice(0,10);if(!/^\d{4}-\d\d-\d\d$/.test(row.game_date))return;
+    row.played=!usageBool_(row.did_not_play)&&(usageNumber_(row.minutes)||0)>0;rows.push(row);if(row.game_date>lastDate)lastDate=row.game_date;
+    const team=String(row.team_display_name),games=teams[team]||(teams[team]={abbreviation:String(row.team_abbreviation||''),games:{}});
+    const g=games.games[row.game_id]||(games.games[row.game_id]={game_id:row.game_id,date:row.game_date,opponent:String(row.opponent_team_abbreviation||''),home_away:String(row.home_away||''),min:0,fga:0,fta:0,tov:0,reb:0,ast:0});
+    if(row.played){g.min+=usageNumber_(row.minutes)||0;g.fga+=usageNumber_(row.field_goals_attempted)||0;g.fta+=usageNumber_(row.free_throws_attempted)||0;g.tov+=usageNumber_(row.turnovers)||0;g.reb+=usageNumber_(row.rebounds)||0;g.ast+=usageNumber_(row.assists)||0;}
+  });
+  return {rows:rows,teams:teams,source:{provider:'sportsdataverse hoopR (ESPN box scores)',url:url,season:season,row_count:rows.length,last_game_date_in_file:lastDate,fetched_utc:now_()}};
+}
+// Team games strictly before the tipoff date (Eastern), newest first.
+function nbaTeamGamesBefore_(box,team,dateKey) {
+  const t=box.teams[team];if(!t)return [];
+  return Object.keys(t.games).map(k=>t.games[k]).filter(g=>g.date<dateKey).sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
+}
+function nbaTeamRest_(box,team,dateKey) {
+  const games=nbaTeamGamesBefore_(box,team,dateKey),last=games[0];
+  if(!last)return {team:team,abbreviation:(box.teams[team]||{}).abbreviation||'',last_game_date:null,rest_days:null,back_to_back:null,games_in_last_7_days:0,note:'NO_EARLIER_GAME_IN_FILE'};
+  const rest=nbaDaysBetween_(last.date,dateKey)-1;
+  return {team:team,abbreviation:box.teams[team].abbreviation,last_game_date:last.date,rest_days:rest,back_to_back:rest===0,games_in_last_7_days:games.filter(g=>nbaDaysBetween_(g.date,dateKey)<=7).length};
+}
+// Usage rate from the box score: 100 x (FGA + 0.44 FTA + TOV) x (team minutes / 5)
+// / (minutes x (team FGA + 0.44 team FTA + team TOV)). Arithmetic on what happened.
+function nbaUsageRate_(row,team) {
+  const min=usageNumber_(row.minutes),fga=usageNumber_(row.field_goals_attempted),fta=usageNumber_(row.free_throws_attempted),tov=usageNumber_(row.turnovers);
+  const teamPoss=team.fga+0.44*team.fta+team.tov;
+  if(!min||fga===null||fta===null||tov===null||!teamPoss||!team.min)return null;
+  return Math.round(100*(fga+0.44*fta+tov)*(team.min/5)/(min*teamPoss)*10)/10;
+}
+function nbaPlayerUsage_(box,name,teams,dateKey) {
+  const key=normPlayerName_(name),allMatches=box.rows.filter(r=>normPlayerName_(r.athlete_display_name)===key),matches=allMatches.filter(r=>teams.indexOf(String(r.team_display_name))>=0);
+  const ids=[...new Set(matches.map(r=>String(r.athlete_id)))];
+  if(!ids.length)return {not_found:{player:name,reason:allMatches.length?'ONLY_FOUND_ON_ANOTHER_TEAM':'NO_BOX_SCORE_ROWS'}};
+  if(ids.length>1)return {not_found:{player:name,reason:'SAME_NAME_ON_BOTH_TEAMS'}};
+  const id=ids[0],own=box.rows.filter(r=>String(r.athlete_id)===id),latest=own.filter(r=>teams.indexOf(String(r.team_display_name))>=0&&r.game_date<dateKey).sort((a,b)=>a.game_date<b.game_date?1:-1)[0]||matches[0];
+  const team=String(latest.team_display_name),teamGames=nbaTeamGamesBefore_(box,team,dateKey).slice(0,USAGE_TEAM_GAMES);
+  const games=teamGames.map(tg=>{
+    const r=own.find(x=>x.game_id===tg.game_id),base={date:tg.date,opponent:tg.opponent,home_away:tg.home_away};
+    if(!r)return Object.assign(base,{status:'NOT_ON_TEAM_BOX_SCORE'});
+    if(!r.played)return Object.assign(base,{status:'DID_NOT_PLAY',reason:String(r.reason||'')});
+    const n=c=>usageNumber_(r[c]);
+    return Object.assign(base,{status:'PLAYED',started:usageBool_(r.starter),minutes:n('minutes'),points:n('points'),rebounds:n('rebounds'),offensive_rebounds:n('offensive_rebounds'),defensive_rebounds:n('defensive_rebounds'),assists:n('assists'),
+      threes_made:n('three_point_field_goals_made'),threes_attempted:n('three_point_field_goals_attempted'),field_goal_attempts:n('field_goals_attempted'),free_throw_attempts:n('free_throws_attempted'),turnovers:n('turnovers'),
+      usage_rate_pct:nbaUsageRate_(r,tg),team_rebound_share_pct:usagePct_(n('rebounds'),tg.reb),team_assist_share_pct:usagePct_(n('assists'),tg.ast)});
+  });
+  const otherTeams=[...new Set(own.filter(r=>String(r.team_display_name)!==team).map(r=>String(r.team_display_name)))];
+  return {player:{player:name,box_score_name:String(latest.athlete_display_name),athlete_id:id,team:team,team_abbreviation:String(latest.team_abbreviation||''),match:'EXACT_NAME_ON_GAME_TEAM',
+    earlier_teams_this_season:otherTeams,team_games_shown:games.length,games_played:games.filter(g=>g.status==='PLAYED').length,games:games}};
+}
+// Returns {event_id: usage_context}. Any failure marks usage UNAVAILABLE.
+function nbaUsageContextForGames_(games,propMarkets,alternateMarkets,timestamp,box) {
+  const out={},stamp=Date.parse(timestamp);
+  if(!USAGE_CONTEXT_ENABLED){games.forEach(g=>out[g.event_id]={status:'DISABLED'});return out;}
+  try{box=box||nbaLoadBoxScores_(nbaSeasonEndYear_(stamp));}
+  catch(e){const reason=safeError_(e);games.forEach(g=>out[g.event_id]={status:'UNAVAILABLE',reason:reason,note:'Usage context could not be loaded; research minutes and roles live. This is never a reason to pass.'});return out;}
+  const yesterday=Utilities.formatDate(new Date(stamp-86400000),'America/New_York','yyyy-MM-dd');
+  games.forEach(g=>{
+    try{
+      const dateKey=g.game_date_et||Utilities.formatDate(new Date(Date.parse(g.kickoff_utc)),'America/New_York','yyyy-MM-dd'),teams=[String(g.home_team),String(g.away_team)];
+      const names=[...new Set(propMarkets.concat(alternateMarkets).filter(q=>String(q.event_id)===String(g.event_id)).map(q=>String(q.player||'')).filter(Boolean))].sort();
+      const players=[],notFound=[];names.forEach(n=>{const r=nbaPlayerUsage_(box,n,teams,dateKey);if(r.player)players.push(r.player);else notFound.push(r.not_found);});
+      const behind=box.source.last_game_date_in_file<yesterday&&box.source.last_game_date_in_file<dateKey;
+      out[g.event_id]={status:'OK',note:'History from box scores, not a projection. Verify minutes, roles and injuries with live news.',source:box.source,
+        source_freshness:behind?'SOURCE_BEHIND: the file ends '+box.source.last_game_date_in_file+'; games after that are missing.':'CURRENT',
+        rest:{home:nbaTeamRest_(box,String(g.home_team),dateKey),away:nbaTeamRest_(box,String(g.away_team),dateKey)},
+        players:players,not_found:notFound,not_available_in_source:['rebound chances','potential assists','touches']};
+    }catch(e){out[g.event_id]={status:'UNAVAILABLE',reason:safeError_(e)};}
+  });
+  return out;
+}
+function usageInstructions_() {
+  return 'USAGE CONTEXT: usage_context lists, for every player with a prop line, his last five team games before tipoff from box scores: started, minutes, points, rebounds, assists, threes, shot and free-throw attempts, turnovers, usage_rate_pct, and his share of team rebounds and assists, or DID_NOT_PLAY with the listed reason. rest gives each team\'s rest days and back-to-back flag. It is history to verify against live news, not a projection; do not average it into an expected number. Rebound chances and potential assists are not in this source. A missing or UNAVAILABLE usage context is never a reason to pass.';
 }

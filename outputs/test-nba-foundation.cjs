@@ -36,7 +36,7 @@ assert.match(keySave, /Manage keys in the owner dashboard/);
 assert.doesNotMatch(keySave, /setProperty|log_|request_/);
 assert.match(source, /function nbaSharedCall_/);
 
-assert.match(mobile, /var APP_BUILD='2026\.11\.02-nba-consensus\.1';/);
+assert.match(mobile, /var APP_BUILD='2026\.11\.02-nba-usage\.1';/);
 const activeSettings = between(mobile, 'function renderCreditPool(pool){', "byId('settings').onclick");
 assert.match(activeSettings, /same owner-managed key pool as NFL and Friends/);
 assert.doesNotMatch(activeSettings, /Add key|Replace key|mobileSaveApiKey|window\.prompt/);

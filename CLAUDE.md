@@ -63,6 +63,8 @@ Run from the repo root; all are offline and mock only.
 - `node outputs/test-nba-speed.cjs` (in place row replacement)
 - `node outputs/test-nba-consensus.cjs` (Phase 2: ten book request, Fanatics
   comparison, MARKET_CONSENSUS and price_gap_pp, overcharge hold)
+- `node outputs/test-nba-usage.cjs` (Phase 3: usage context from hoopR box
+  scores, rest and back to back flags)
 - `node deploy/test.cjs` (GitHub deploy button checks)
 
 `outputs/nba-mock-env.cjs` is the shared offline mock of Sheets, Drive,

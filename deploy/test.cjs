@@ -67,6 +67,7 @@ test('a deploy is checked before and after, tagged, and rollback does not depend
  assert.match(workflow,/name: Confirm live code matches[^\n]*\n\s+if: inputs\.mode != 'rollback'/);
  assert.match(workflow,/git checkout "\$TAG" -- outputs\/NbaOddsLoader\.gs outputs\/Mobile\.html outputs\/appsscript\.json/);
  assert.match(workflow,/Something stopped partway/);assert.match(workflow,/Stopped before anything changed/);assert.match(workflow,/Only a bookkeeping step after it failed/);
+ assert.match(workflow,/for attempt in 1 2 3 4 5 6; do\n\s+clasp --json list-deployments/,'the listing is re-read before a mismatch is declared');
  assert.match(workflow,/already records this commit/);assert.match(workflow,/already exists for a different commit/);
 });
 test('clasp only ever pushes the three allowlisted files',()=>{

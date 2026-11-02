@@ -2,9 +2,40 @@
 
 ## Current state
 
+**Phase 3 part 1, usage context (2026-11-02, cloud session, branch
+`claude/phase3-usage` from Phase 2, build `2026.11.02-nba-usage.1`, LOCAL
+ONLY, NOT DEPLOYED; live is version 15):**
+
+- Source: sportsdataverse hoopR NBA player box scores, release
+  `espn_nba_player_boxscores`, file `player_box_<season end year>.csv`
+  (2026-27 = 2027). Free direct download, no key, updated daily; on
+  2026-11-02 it had 2,509 rows through 2026-11-01 (1.28 MB).
+- `usage_context` per exported game: for each prop player, the last 5 team
+  games before tipoff (started, minutes, points, rebounds split, assists,
+  threes, FGA, FTA, turnovers, usage rate from the box score formula, team
+  rebound and assist shares, or DID_NOT_PLAY with reason); `rest` per team
+  (last game date, rest days, back to back, games in last 7 days); players
+  matched by exact normalized name within the game's two teams, otherwise
+  `not_found` with a reason. No averages or rates. SOURCE_BEHIND flag when
+  the file lags. Failure marks UNAVAILABLE and never blocks.
+- Not available from this source: rebound chances, potential assists,
+  touches (NBA.com tracking data).
+- Real data check (Knicks vs Celtics, file of 2026-11-01): 5 of 5 real players
+  matched, rest flags correct, about 11 KB per game.
+- Deploy button: the post-deploy check now re-reads the listing up to 6 times,
+  15 seconds apart, before declaring a mismatch.
+- Offline: 12 suites pass; new `test-nba-usage.cjs` 13.
+- Credits: 0 Odds API credits; one free GitHub download per export.
+- Still pending: the supervised one-game paid test (at most 5 credits) on the
+  live version; Phase 3 part 2 (candidate log and free grading).
+
 **Phase 2 price comparison (2026-11-02, cloud session, branch
 `claude/phase2-consensus` from Phase 1, build `2026.11.02-nba-consensus.1`,
-pushed to GitHub 2026-11-02 on owner OK, NOT DEPLOYED; live stays version 14):**
+DEPLOYED as version 15 on 2026-11-02 20:56Z, owner "deploy now", deploy
+button run 41523700337, commit `6f208a7`. That run's final check read Google's
+deployment listing too soon (it still showed 14) and stopped; a free check
+run 41524481031 then confirmed the web app on 15 and live HEAD and version 15
+byte-matching `6f208a7`, and recorded tag `nba-v15`. Rollback: version 14):**
 
 - Ten book request on every paid props and game lines call: draftkings,
   fanatics, fanduel, betmgm, williamhill_us, betrivers, hardrockbet, pinnacle,
@@ -345,3 +376,5 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Deployed Phase 1 as version 14 via the deploy button (run 41500024745); verified byte-match and tagged nba-v14. Paid test pending.
 - 2026-11-02: Phase 2 built on `claude/phase2-consensus`: ten book request, Fanatics COMPARE_QUOTES, MARKET_CONSENSUS with price_gap_pp, overcharge hold, pricing in exports and handoffs.
 - 2026-11-02: New suite test-nba-consensus (20); 19 fail on live v14 source; all 11 suites pass. Branch pushed on owner OK; not deployed.
+- 2026-11-02: Phase 2 deployed as version 15 (run 41523700337); the verify step read a stale listing; check run 41524481031 confirmed v15 byte-match and tagged nba-v15.
+- 2026-11-02: Phase 3 part 1 built on `claude/phase3-usage`: usage context from hoopR box scores, rest and back to back flags; deploy verify retries the listing. 12 suites pass. Local only.

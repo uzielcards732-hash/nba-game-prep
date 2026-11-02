@@ -89,6 +89,13 @@ reason to remain RECOMMENDED. The gap is a market reference, not a forecast
 or an edge claim; a missing consensus or Fanatics price is never a refusal
 reason, and the gap alone never decides a pick. DraftKings stays the quoted
 price; name Fanatics when it is better at the identical line.
+Exports carry usage_context: each prop player's last five team games from the
+free sportsdataverse hoopR box score release (minutes, starts, shot attempts,
+usage rate, rebounds, assists, team rebound and assist shares, did-not-play
+reasons) and each team's rest days and back-to-back flag. It is history to
+verify against live news, never a projection: do not average it into an
+expected number. Rebound chances and potential assists are not in that source.
+A missing or UNAVAILABLE usage context is never a refusal reason.
 
 Classify completed, credible exact-quote cases RECOMMENDED; supported cases with
 a named material injury, role or price condition CONDITIONAL; plausible but

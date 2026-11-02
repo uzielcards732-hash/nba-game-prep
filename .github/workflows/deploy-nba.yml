@@ -204,8 +204,14 @@ jobs:
           NBA_SCRIPT_ID: ${{ secrets.NBA_SCRIPT_ID }}
         run: |
           set -e
-          clasp --json list-deployments > "$RUNNER_TEMP/after.json"
-          NOW=$(node deploy/deploy.cjs live-version "$RUNNER_TEMP/after.json" "$DEPLOYMENT_ID")
+          # Google's deployment listing can lag a few seconds behind the switch,
+          # so it is read again (free, read-only) before calling it a mismatch.
+          for attempt in 1 2 3 4 5 6; do
+            clasp --json list-deployments > "$RUNNER_TEMP/after.json"
+            NOW=$(node deploy/deploy.cjs live-version "$RUNNER_TEMP/after.json" "$DEPLOYMENT_ID")
+            [ "$NOW" = "$VERSION" ] && break
+            echo "The web app listing still shows version $NOW; reading it again in 15 seconds ($attempt of 6)."; sleep 15
+          done
           [ "$NOW" = "$VERSION" ] || { echo "Stopped: the web app shows version $NOW, expected $VERSION."; exit 1; }
           rm -rf "$RUNNER_TEMP/expected2" "$RUNNER_TEMP/head2" "$RUNNER_TEMP/version2"; mkdir -p "$RUNNER_TEMP/expected2" "$RUNNER_TEMP/head2" "$RUNNER_TEMP/version2"
           for f in NbaOddsLoader.gs Mobile.html appsscript.json; do git show "$COMMIT:outputs/$f" > "$RUNNER_TEMP/expected2/$f"; done

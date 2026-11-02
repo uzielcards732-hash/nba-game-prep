@@ -4,6 +4,11 @@
 // No network, no credentials. Each test builds a fresh environment.
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const {formatDate}=require('./nba-test-dates.cjs');
+// Minimal RFC 4180 CSV parser standing in for Utilities.parseCsv.
+function parseCsv(text){const rows=[];let row=[],cell='',q=false;for(let i=0;i<text.length;i++){const c=text[i];
+ if(q){if(c==='"'){if(text[i+1]==='"'){cell+='"';i++;}else q=false;}else cell+=c;}
+ else if(c==='"')q=true;else if(c===','){row.push(cell);cell='';}else if(c==='\n'||c==='\r'){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);rows.push(row);row=[];cell='';}else cell+=c;}
+ if(cell!==''||row.length){row.push(cell);rows.push(row);}return rows;}
 const SOURCE_PATH=process.env.NBA_SOURCE||path.join(__dirname,'NbaOddsLoader.gs');
 
 function makeEnv(options){
@@ -59,7 +64,13 @@ function makeEnv(options){
  const builder=handler=>{const b={timeBased:()=>b,after:()=>b,atHour:()=>b,nearMinute:()=>b,everyDays:()=>b,inTimezone:()=>b,create(){const id=String(++triggerSeq);const t={getHandlerFunction:()=>handler,getUniqueId:()=>id};triggers.push(t);return t;}};return b;};
  // ---------------- Odds API transport ----------------
  const fetches=[],responses=[];
- const UrlFetchApp={fetch(url){fetches.push(url.replace(/apiKey=[^&]+/,'apiKey=REDACTED'));if(!responses.length)throw new Error('No mock response queued');const r=responses.shift();if(r.throws)throw new Error(r.throws);
+ // Free downloads (box scores) are served from env.web by URL and counted
+ // separately, so fetches stays the list of Odds API requests.
+ const web=new Map(),webFetches=[];
+ const UrlFetchApp={fetch(url){
+  if(!/api\.the-odds-api\.com/.test(url)){webFetches.push(url);const w=web.get(url);if(w===undefined)throw new Error('Address unavailable: '+url);if(w.throws)throw new Error(w.throws);
+   return {getResponseCode:()=>w.code||200,getAllHeaders:()=>({}),getContentText:()=>w.body};}
+  fetches.push(url.replace(/apiKey=[^&]+/,'apiKey=REDACTED'));if(!responses.length)throw new Error('No mock response queued');const r=responses.shift();if(r.throws)throw new Error(r.throws);
   return {getResponseCode:()=>r.code||200,getAllHeaders:()=>r.headers||{},getContentText:()=>typeof r.body==='string'?r.body:JSON.stringify(r.body)};}};
  // ---------------- Shared key library ----------------
  const ledger=new Map(),libraryCalls=[];let charged=0;
@@ -93,12 +104,12 @@ function makeEnv(options){
   LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock(){},hasLock:()=>false}),getDocumentLock:()=>({tryLock:()=>true,releaseLock(){}})},
   ScriptApp:{getProjectTriggers:()=>triggers.slice(),newTrigger:builder,deleteTrigger(t){const i=triggers.indexOf(t);if(i>=0)triggers.splice(i,1);},requireScopes(){},AuthMode:{FULL:'FULL'}},
   UrlFetchApp,SharedNFL,
-  Utilities:{getUuid:(()=>{let n=0;return ()=>'uuid-'+(++n);})(),formatDate:(d,tz,p)=>formatDate(d,tz,p),sleep(){}},
+  Utilities:{parseCsv:text=>parseCsv(text),getUuid:(()=>{let n=0;return ()=>'uuid-'+(++n);})(),formatDate:(d,tz,p)=>formatDate(d,tz,p),sleep(){}},
   MimeType:{PLAIN_TEXT:'text/plain'},Session:{getEffectiveUser:()=>({getEmail:()=>''}),getActiveUser:()=>({getEmail:()=>''})},
   MailApp:{sendEmail(){throw new Error('email must not be sent in tests');},getRemainingDailyQuota:()=>0}
  });
  vm.runInContext(fs.readFileSync(SOURCE_PATH,'utf8'),context,{filename:'NbaOddsLoader.gs'});
- const env={context,sheets,ss,files,props,triggers,fetches,responses,ledger,libraryCalls,libraryFaults,faults,cells,driveWrites,log,
+ const env={context,sheets,ss,files,props,triggers,fetches,responses,web,webFetches,ledger,libraryCalls,libraryFaults,faults,cells,driveWrites,log,
   run:code=>vm.runInContext(code,context),
   advance(ms){clock+=ms;},now:()=>clock,setNow(iso){clock=Date.parse(iso);},
   charged:()=>charged,

@@ -4,9 +4,10 @@
 
 **Final pick checks ported from NFL v39 (2026-11-03, cloud session, branch
 `claude/nba-pick-checks` from `claude/phase3-candidates`, build
-`2026.11.03-nba-picks.1`): LOCAL ONLY, not pushed, not deployed. Live is
-still version 17. Next: owner OK to push, then "deploy now" (would be version
-18, rollback 17).**
+`2026.11.03-nba-picks.1`): DEPLOYED as version 18, commit `c5e3268`, owner
+"push and deploy now", deploy button run 41648291507; every step passed
+including the post-deploy verify; tag `nba-v18`. Rollback: version 17.
+Pending: free phone check that the copied handoff carries the new rules.**
 
 - Prompt text only (phone `researchWorkflow_`, `selectionStandard_`,
   `researchRecoveryInstructions_`), so ChatGPT, Claude, Perplexity and the
@@ -445,3 +446,4 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Supervised paid test on v16 passed (7 games, 35 credits); Fanatics posts no NBA props; gap reason threshold set to -2.5 by owner.
 - 2026-11-02: Phase 3 part 2 (pick log, grading, -2.5 gap rule) deployed as version 17 (run 41541791448); tag nba-v17. Phase 4 (bet log) not started.
 - 2026-11-03: NFL v39 final pick checks ported on `claude/nba-pick-checks` (base case rule as a qualitative read, KEEP/DOWNGRADE/REPLACE/PASS, shared dependencies, fuller recovery). Prompt text only, 0 credits. 13 suites pass; new checks fail on v17. Local only.
+- 2026-11-03: Final pick checks deployed as version 18 (run 41648291507); tag nba-v18. Phase 4 (bet log) not started.

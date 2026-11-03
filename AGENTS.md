@@ -122,6 +122,23 @@ sourced support, strongest opposing evidence, working source links and closest
 alternative. Draw the final up-to-ten shortlist from the same decision list using
 RECOMMENDED and CONDITIONAL only; never pad it with unsupported or rejected rows.
 Parlays still require exact RECOMMENDED legs and an actual sportsbook quote.
+Final selection checks (owner approved 2026-11-03, ported from NFL v39): the
+shortlist is provisional; reconsider overlooked candidates as research develops
+and never classify an insufficiently researched candidate RECOMMENDED. Challenge
+each proposed RECOMMENDED pick against contrary evidence, its exact
+threshold-versus-price tradeoff, likely failure assumption and closest
+alternative, then decide KEEP, DOWNGRADE, REPLACE or PASS with the evidence
+responsible; final tables keep the usual classifications. If the AI's own base
+case for a player or team stat (a qualitative read of the likely outcome, not a
+computed average or projection) lands on the losing side of the line, the pick
+cannot be RECOMMENDED without a specific, sourced reason the base case is
+wrong; a general game script or blowout argument is not enough. Explain
+specific shared dependencies across leading picks and proposed parlays, with
+uncertainty; sharing a player or game alone does not establish strong
+correlation. Do not invent correlation scores, automatically reject same-game
+combinations or force diversification. Research tool recovery allows at most
+one retry of a failed read-only research call, never of paid loads, emails or
+writes, and never bypasses the freshness, event and snapshot guards.
 In game tables, the final shortlist and parlays, label each player with the
 verified team abbreviation, e.g. Shai Gilgeous-Alexander (OKC). Use verified
 export mappings or current sourced research; otherwise show (team unverified).

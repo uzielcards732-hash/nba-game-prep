@@ -3,7 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const html = fs.readFileSync(path.join(__dirname, 'Mobile.html'), 'utf8');
+// NBA_MOBILE=<file> runs the suite against another copy, e.g. the live phone page.
+const html = fs.readFileSync(process.env.NBA_MOBILE || path.join(__dirname, 'Mobile.html'), 'utf8');
 const controller = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)][0][1];
 const build = controller.match(/var APP_BUILD='([^']+)'/)[1];
 let checks = 0;
@@ -83,8 +84,27 @@ function checkPayload(request, latest) {
     'if unresolved, display (team unverified) rather than guessing',
     'This label must not change the exact exported player identity or quote',
     'if only two picks qualify, show two', 'same-game combinations require an actual sportsbook quote',
-    'Retry that read-only call at most once', 'SportsGameOdds NBA coverage remains disabled'
+    'Retry that read-only call at most once', 'SportsGameOdds NBA coverage remains disabled',
+    // Final selection checks ported from NFL v39 (owner approved 2026-11-03).
+    'The shortlist is provisional: reuse shared game research and reconsider overlooked candidates',
+    'Never classify an insufficiently researched candidate RECOMMENDED',
+    'If your own base case for a player or team stat (a qualitative read of the likely outcome, not a computed average or projection) lands on the losing side of the exported line, that pick cannot be RECOMMENDED unless you give a specific, sourced reason the base case is wrong',
+    'a general game script or blowout argument is not enough',
+    'Explicitly choose KEEP, DOWNGRADE, REPLACE, or PASS and identify the responsible evidence',
+    'Replacements require the same research and exact-price justification',
+    'A favorable basketball angle alone does not establish a pricing edge',
+    'Explain meaningful shared dependencies across leading picks and proposed parlays',
+    'Sharing a player or game alone does not establish strong correlation',
+    'Do not invent correlation scores, automatically reject same-game combinations, or force diversification',
+    'Describe actual betting exposure only for bets the owner confirms were placed',
+    'Optional search-feedback or telemetry failures are nonessential',
+    'this retry permission never applies to provider loads, emails or other writes',
+    'If one research worker fails, collect completed findings from every other worker',
+    'Recovery never bypasses the exact-file, freshness, event and snapshot matching, or started-game guards',
+    'do not promise automatic recovery from a service outage'
   ]) assert.ok(request.includes(rule), rule);
+  // The base case rule must never be read as a request for a computed number or probability.
+  assert.doesNotMatch(request, /expected value|projected (points|rebounds|assists|minutes)|win probability/i);
   assert.match(request, /24 hours/);
   assert.match(request, /snapshot IDs/);
   assert.match(request, /fresh eligible alternate rungs/);

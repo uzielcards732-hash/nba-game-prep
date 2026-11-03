@@ -44,8 +44,8 @@ paid test.
    `price_gap_pp`. Ten books in one region keeps per call cost unchanged.
 3. Usage context and candidate log (free source; test hoopR NBA releases from
    Apps Script, else parse only path). Raise effort first.
-4. Bet log and slip reading (Claude API reads slip screenshots only). Raise
-   effort first.
+4. Bet log and slip reading: DROPPED by the owner 2026-11-03. No Claude API
+   slip reading. Do not build unless the owner asks again.
 
 ## Offline test suites
 

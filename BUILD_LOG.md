@@ -7,7 +7,9 @@
 `2026.11.03-nba-picks.1`): DEPLOYED as version 18, commit `c5e3268`, owner
 "push and deploy now", deploy button run 41648291507; every step passed
 including the post-deploy verify; tag `nba-v18`. Rollback: version 17.
-Pending: free phone check that the copied handoff carries the new rules.**
+Pending: free phone check that the copied handoff carries the new rules.
+Phase 4 (bet log and slip reading) dropped by the owner 2026-11-03; the
+upgrade plan is complete at Phase 3 plus the final pick checks.**
 
 - Prompt text only (phone `researchWorkflow_`, `selectionStandard_`,
   `researchRecoveryInstructions_`), so ChatGPT, Claude, Perplexity and the
@@ -447,3 +449,4 @@ same owner pool as NFL/Friends.
 - 2026-11-02: Phase 3 part 2 (pick log, grading, -2.5 gap rule) deployed as version 17 (run 41541791448); tag nba-v17. Phase 4 (bet log) not started.
 - 2026-11-03: NFL v39 final pick checks ported on `claude/nba-pick-checks` (base case rule as a qualitative read, KEEP/DOWNGRADE/REPLACE/PASS, shared dependencies, fuller recovery). Prompt text only, 0 credits. 13 suites pass; new checks fail on v17. Local only.
 - 2026-11-03: Final pick checks deployed as version 18 (run 41648291507); tag nba-v18. Phase 4 (bet log) not started.
+- 2026-11-03: Owner dropped Phase 4 (bet log and slip reading). No Claude API key or spend. Upgrade plan closed.
